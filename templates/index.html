@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>F1 Tabletop Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <main>
+      <h1>F1 Tabletop Manager (4 joueurs + 1 MJ)</h1>
+      <p class="subtitle">Le système affiche seulement le jet (d20 + modificateur). Le MJ et les joueurs décident du résultat.</p>
+
+      <section class="panel" id="setup-panel">
+        <h2>Création des voitures</h2>
+        <p>Stats entre 1 et 10. Modificateur brut: stat - 5 (borné à -4 / +5).</p>
+        <form id="setup-form"></form>
+        <button id="start-btn">Démarrer la course</button>
+      </section>
+
+      <section class="panel hidden" id="race-panel">
+        <h2>État de course</h2>
+        <div id="segment-info"></div>
+        <div id="active-info"></div>
+        <ol id="ranking"></ol>
+
+        <div class="actions">
+          <button id="roll-btn">Lancer un test de dépassement</button>
+          <button id="success-btn">Dépassement réussi</button>
+          <button id="fail-btn">Dépassement raté</button>
+          <button id="next-btn">Prochain joueur / prochain virage</button>
+        </div>
+
+        <div id="roll-result" class="roll-box"></div>
+      </section>
+
+      <section class="panel tips">
+        <h2>Features recommandées ensuite</h2>
+        <ul>
+          <li>Pit stops (usure pneus + stratégie)</li>
+          <li>Météo dynamique (pluie = modif downforce/pilote)</li>
+          <li>Fiabilité moteur (risque de casse sur gros jet raté)</li>
+          <li>Compétence pilote séparée des stats voiture</li>
+        </ul>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
