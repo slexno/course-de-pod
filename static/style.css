@@ -59,5 +59,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 #danger-btn { background: #1d4ed8; }
 #prep-btn { background: #16a34a; }
 #next-section-btn { background: #15803d; }
+#slow-behind-btn { background: #0369a1; }
 #pass-btn, #next-turn-btn, #restart-btn-2 { background: #334155; }
 #restart-btn-2 { background: #475569; }

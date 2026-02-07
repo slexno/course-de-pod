@@ -29,6 +29,7 @@ const overtakeBtn = document.getElementById("overtake-btn");
 const dangerBtn = document.getElementById("danger-btn");
 const prepBtn = document.getElementById("prep-btn");
 const nextSectionBtn = document.getElementById("next-section-btn");
+const slowBehindBtn = document.getElementById("slow-behind-btn");
 const passBtn = document.getElementById("pass-btn");
 const nextTurnBtn = document.getElementById("next-turn-btn");
 const generateTrackBtn = document.getElementById("generate-track-btn");
@@ -305,7 +306,7 @@ function renderState(state) {
   renderTrack(state.track || {markers: [], path: []}, trackSvg, trackPath, true);
 
   const disabled = state.finished;
-  [overtakeBtn, dangerBtn, prepBtn, nextSectionBtn, passBtn, nextTurnBtn, weatherBtn].forEach((b) => {
+  [overtakeBtn, dangerBtn, prepBtn, nextSectionBtn, slowBehindBtn, passBtn, nextTurnBtn, weatherBtn].forEach((b) => {
     b.disabled = disabled;
   });
 
@@ -377,6 +378,7 @@ overtakeBtn.addEventListener("click", () => runAction("overtake"));
 dangerBtn.addEventListener("click", () => runAction("dangerous_overtake"));
 prepBtn.addEventListener("click", () => runAction("prepare"));
 nextSectionBtn.addEventListener("click", () => runAction("next_section_bonus"));
+slowBehindBtn.addEventListener("click", () => runAction("slow_behind"));
 passBtn.addEventListener("click", () => runAction("pass"));
 nextTurnBtn.addEventListener("click", async () => {
   showError("");

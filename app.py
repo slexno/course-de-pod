@@ -33,6 +33,9 @@ class Player:
     successful_overtakes: int = 0
     successful_defenses: int = 0
     malus_count: int = 0
+    slow_malus_sections: int = 0
+    permanent_trailing_malus: int = 0
+    last_place_streak: int = 0
     color: str = "#22c55e"
 
 
@@ -156,6 +159,29 @@ def get_target_player() -> Player | None:
     return get_player_by_id(game_state.positions[game_state.active_position_index - 1])
 
 
+def get_player_behind() -> Player | None:
+    if game_state.active_position_index >= len(game_state.positions) - 1:
+        return None
+    return get_player_by_id(game_state.positions[game_state.active_position_index + 1])
+
+
+def trailing_permanent_penalty(player: Player) -> int:
+    return -max(0, player.permanent_trailing_malus)
+
+
+def peloton_index_for_player(player: Player) -> int:
+    count = max(1, len(game_state.positions))
+    try:
+        pos_idx = game_state.positions.index(player.player_id)
+    except ValueError:
+        pos_idx = count - 1
+    return min(3, int((pos_idx * 4) / count))
+
+
+def peloton_wear_bonus(player: Player) -> float:
+    return [0.0, 0.2, 0.5, 0.9][peloton_index_for_player(player)]
+
+
 def attack_modifier(attacker: Player, segment: dict[str, Any], dangerous: bool) -> tuple[int, list[str]]:
     notes: list[str] = []
     w_pen = weather_dex_penalty()
@@ -193,6 +219,15 @@ def attack_modifier(attacker: Player, segment: dict[str, Any], dangerous: bool) 
         total -= 3
         notes.append(f"Malus risque: -3 ({attacker.risk_penalty_sections} sections restantes)")
 
+    if attacker.slow_malus_sections > 0:
+        total -= 5
+        notes.append(f"Malus ralentissement: -5 ({attacker.slow_malus_sections} sections restantes)")
+
+    perm = trailing_permanent_penalty(attacker)
+    if perm:
+        total += perm
+        notes.append(f"Malus dernier permanent: {perm:+d}")
+
     return total, notes
 
 
@@ -212,6 +247,36 @@ def defense_modifier(defender: Player) -> tuple[int, list[str]]:
         total -= 3
         notes.append(f"Malus risque: -3 ({defender.risk_penalty_sections} sections restantes)")
 
+    if defender.slow_malus_sections > 0:
+        total -= 5
+        notes.append(f"Malus ralentissement: -5 ({defender.slow_malus_sections} sections restantes)")
+
+    perm = trailing_permanent_penalty(defender)
+    if perm:
+        total += perm
+        notes.append(f"Malus dernier permanent: {perm:+d}")
+
+    return total, notes
+
+
+def slow_attack_modifier(attacker: Player) -> tuple[int, list[str]]:
+    aggr = dnd_modifier(attacker.aggressiveness)
+    total = aggr + wear_penalty(attacker)
+    notes = [f"Agressivité: {aggr:+d}"]
+
+    wp = wear_penalty(attacker)
+    if wp:
+        notes.append(f"Usure pneus: {wp:+d}")
+
+    if attacker.slow_malus_sections > 0:
+        total -= 5
+        notes.append(f"Malus ralentissement: -5 ({attacker.slow_malus_sections} sections restantes)")
+
+    perm = trailing_permanent_penalty(attacker)
+    if perm:
+        total += perm
+        notes.append(f"Malus dernier permanent: {perm:+d}")
+
     return total, notes
 
 
@@ -228,9 +293,11 @@ def dangerous_risk_penalty(attacker: Player, dangerous: bool) -> tuple[bool, str
 
 
 def consume_turn(player: Player, segment: dict[str, Any], action_wear: float) -> None:
-    player.tire_wear += action_wear
+    player.tire_wear += action_wear + peloton_wear_bonus(player)
     if player.risk_penalty_sections > 0:
         player.risk_penalty_sections -= 1
+    if player.slow_malus_sections > 0:
+        player.slow_malus_sections -= 1
 
     if segment["type"] != "ligne_droite":
         score = dnd_modifier(player.dexterity) + dnd_modifier(player.downforce)
@@ -242,6 +309,18 @@ def advance_turn() -> None:
     game_state.active_position_index += 1
     if game_state.active_position_index >= len(game_state.positions):
         game_state.active_position_index = 0
+
+        if game_state.positions:
+            last_pid = game_state.positions[-1]
+            for player in game_state.players:
+                if player.player_id == last_pid:
+                    player.last_place_streak += 1
+                    if player.last_place_streak > 4 and (player.last_place_streak - 5) % 4 == 0:
+                        player.permanent_trailing_malus += 1
+                        game_state.last_duel = {"info": f"{player.name} subit un malus permanent de -1 (dernier trop longtemps)."}
+                else:
+                    player.last_place_streak = 0
+
         segments = load_circuit_segments()
         segment_count = max(1, len(segments))
         game_state.segment_index = (game_state.segment_index + 1) % segment_count
@@ -556,6 +635,62 @@ def action() -> Any:
         advance_turn()
         return jsonify(serialize_state())
 
+    if action_type == "slow_behind":
+        if game_state.active_position_index >= len(game_state.positions) - 1:
+            consume_turn(attacker, segment, action_wear=0.8)
+            game_state.last_duel = {"info": f"{attacker.name} est dernier: personne à ralentir."}
+            advance_turn()
+            return jsonify(serialize_state())
+
+        defender = get_player_behind()
+        if defender is None:
+            return jsonify({"error": "Défenseur indisponible."}), 400
+
+        atk_mod, atk_notes = slow_attack_modifier(attacker)
+        def_mod, def_notes = defense_modifier(defender)
+        atk_roll = random.randint(1, 20)
+        def_roll = random.randint(1, 20)
+        atk_total = atk_roll + atk_mod
+        def_total = def_roll + def_mod
+        success = atk_total > def_total
+
+        overtake_back = (def_total - atk_total) > 10
+        if success:
+            defender.slow_malus_sections = max(defender.slow_malus_sections, 2)
+            attacker.successful_overtakes += 1
+            attacker.tire_wear = max(0.0, attacker.tire_wear - 0.5)
+            defender.tire_wear += 0.5
+        else:
+            defender.successful_defenses += 1
+            attacker.tire_wear += 1.0
+            if overtake_back:
+                i = game_state.active_position_index
+                game_state.positions[i], game_state.positions[i + 1] = game_state.positions[i + 1], game_state.positions[i]
+                game_state.active_position_index += 1
+
+        defender.prep_defense_bonus = 0
+        consume_turn(attacker, segment, action_wear=1.2)
+
+        game_state.last_duel = {
+            "attacker": attacker.name,
+            "defender": defender.name,
+            "attack_roll": atk_roll,
+            "attack_mod": atk_mod,
+            "attack_total": atk_total,
+            "attack_notes": atk_notes,
+            "defense_roll": def_roll,
+            "defense_mod": def_mod,
+            "defense_total": def_total,
+            "defense_notes": def_notes,
+            "dangerous": False,
+            "risk_triggered": False,
+            "risk_note": "Contre réussi: dépassement défensif (>10)." if overtake_back else "",
+            "success": success,
+        }
+
+        advance_turn()
+        return jsonify(serialize_state())
+
     if action_type == "pass":
         consume_turn(attacker, segment, action_wear=0.6)
         game_state.last_duel = {"info": f"{attacker.name} passe cette section."}
@@ -593,8 +728,11 @@ def action() -> Any:
         i = game_state.active_position_index
         game_state.positions[i - 1], game_state.positions[i] = game_state.positions[i], game_state.positions[i - 1]
         game_state.active_position_index -= 1
+        attacker.tire_wear = max(0.0, attacker.tire_wear - 0.5)
+        defender.tire_wear += 0.5
     else:
         defender.successful_defenses += 1
+        attacker.tire_wear += 1.0
 
     defender.prep_defense_bonus = 0
     consume_turn(attacker, segment, action_wear=2.2 if dangerous else 1.6)
