@@ -67,19 +67,23 @@
               <button type="button" id="weather-btn">Appliquer</button>
             </div>
 
-            <div class="actions">
-              <button type="button" id="overtake-btn">Dépassement</button>
-              <button type="button" id="danger-btn">Dépassement dangereux</button>
-              <button type="button" id="prep-btn">Préparation (+défense)</button>
-              <button type="button" id="next-section-btn">Prochaine section (+attaque)</button>
-              <button type="button" id="pass-btn">Passer</button>
-              <button type="button" id="next-turn-btn">Prochain tour</button>
-              <button type="button" id="restart-btn-2">Recommencer</button>
+            <div class="race-actions-layout">
+              <div class="actions-column">
+                <button type="button" id="overtake-btn">Dépassement</button>
+                <button type="button" id="danger-btn">Dépassement dangereux</button>
+                <button type="button" id="prep-btn">Préparation (+défense)</button>
+                <button type="button" id="next-section-btn">Prochaine section (+attaque)</button>
+              </div>
+              <div class="actions-bottom-right">
+                <button type="button" id="pass-btn">Passer</button>
+                <button type="button" id="next-turn-btn">Prochain tour</button>
+                <button type="button" id="restart-btn-2">Recommencer</button>
+              </div>
             </div>
 
             <div class="duel-grid">
-              <div class="duel"><h3>Attaque</h3><div id="attack-box">-</div></div>
-              <div class="duel"><h3>Défence</h3><div id="defense-box">-</div></div>
+              <div class="duel"><h3>Attaque</h3><div id="attack-box" class="duel-box">-</div></div>
+              <div class="duel"><h3>Défence</h3><div id="defense-box" class="duel-box">-</div></div>
             </div>
 
             <h3>Carte du circuit</h3>

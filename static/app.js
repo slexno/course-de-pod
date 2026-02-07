@@ -158,6 +158,9 @@ function renderTrack(track, svgElement, pathElement, showMarkers) {
 }
 
 function renderLastDuel(lastDuel) {
+  attackBox.className = "duel-box";
+  defenseBox.className = "duel-box";
+
   if (!lastDuel) {
     attackBox.textContent = "-";
     defenseBox.textContent = "-";
@@ -170,18 +173,23 @@ function renderLastDuel(lastDuel) {
     return;
   }
 
+  const attackSuccess = !!lastDuel.success;
+  const defenseSuccess = !lastDuel.success;
+  attackBox.classList.add(attackSuccess ? "result-success" : "result-fail");
+  defenseBox.classList.add(defenseSuccess ? "result-success" : "result-fail");
+
   attackBox.innerHTML = `
     <strong>${lastDuel.attacker}</strong><br/>
-    d20: ${lastDuel.attack_roll} | mod: ${lastDuel.attack_mod >= 0 ? "+" : ""}${lastDuel.attack_mod}<br/>
-    total: <strong>${lastDuel.attack_total}</strong><br/>
+    d20: ${lastDuel.attack_roll} | mod: ${lastDuel.attack_mod >= 0 ? "+" : ""}${lastDuel.attack_mod}
+    <div class="duel-total">Total Attaque: ${lastDuel.attack_total}</div>
     ${lastDuel.attack_notes.join("<br/>")}
     ${lastDuel.dangerous ? "<br/><em>Dépassement dangereux</em>" : ""}
     ${lastDuel.risk_note ? `<br/><span class='warning'>${lastDuel.risk_note}</span>` : ""}`;
 
   defenseBox.innerHTML = `
     <strong>${lastDuel.defender}</strong><br/>
-    d20: ${lastDuel.defense_roll} | mod: ${lastDuel.defense_mod >= 0 ? "+" : ""}${lastDuel.defense_mod}<br/>
-    total: <strong>${lastDuel.defense_total}</strong><br/>
+    d20: ${lastDuel.defense_roll} | mod: ${lastDuel.defense_mod >= 0 ? "+" : ""}${lastDuel.defense_mod}
+    <div class="duel-total">Total Défense: ${lastDuel.defense_total}</div>
     ${lastDuel.defense_notes.join("<br/>")}<br/>
     <strong>${lastDuel.success ? "Dépassement réussi" : "Défense réussie"}</strong>`;
 }
