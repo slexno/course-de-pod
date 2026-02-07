@@ -13,9 +13,7 @@ input, select { background: #0b1220; color: #fff; }
 button { background: #2563eb; color: #fff; cursor: pointer; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 .actions, .weather-row { margin: .8rem 0; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
-.race-actions-layout { margin: .8rem 0 1rem; display: flex; flex-direction: column; gap: .8rem; }
-.actions-column { display: flex; flex-direction: column; gap: .45rem; max-width: 340px; }
-.actions-bottom-right { display: flex; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; }
+.race-actions-horizontal { justify-content: flex-start; }
 .duel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: 1rem 0; }
 .duel { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: .8rem; min-height: 175px; }
 .duel-box { border: 1px solid #334155; border-radius: 10px; padding: .6rem; background: rgba(15, 23, 42, .55); }
