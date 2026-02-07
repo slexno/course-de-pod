@@ -270,6 +270,17 @@ def track_data(segments: list[dict[str, Any]]) -> dict[str, Any]:
         return x_pct, y_pct
 
     path = [{"x": normalize(x, y)[0], "y": normalize(x, y)[1]} for x, y in points]
+    sections = []
+    for seg in segments:
+        sx, sy = normalize(seg["start_x"], seg["start_y"])
+        ex, ey = normalize(seg["end_x"], seg["end_y"])
+        sections.append({
+            "index": seg["index"],
+            "type": seg["type"],
+            "category": seg["category"],
+            "start": {"x": sx, "y": sy},
+            "end": {"x": ex, "y": ey},
+        })
 
     cumulative_lengths = [0.0]
     for i in range(1, len(points)):
@@ -309,7 +320,7 @@ def track_data(segments: list[dict[str, Any]]) -> dict[str, Any]:
             "status": "running",
         })
 
-    return {"markers": markers, "path": path}
+    return {"markers": markers, "path": path, "sections": sections}
 
 
 def qualification_order(segments: list[dict[str, Any]]) -> list[int]:

@@ -83,15 +83,53 @@ async function api(url, method = "GET", body = null) {
   return data;
 }
 
+
+function sectionColor(sectionType, sectionCategory) {
+  if (sectionCategory === "ligne_des_stands") return "#f59e0b";
+  if (sectionCategory === "retour_stands") return "#eab308";
+  if (sectionCategory === "chicane") return "#a855f7";
+  if (sectionCategory === "epingle") return "#ef4444";
+  if (sectionCategory === "virage_lent") return "#f97316";
+  if (sectionCategory === "virage_rapide") return "#22c55e";
+  if (sectionType === "ligne_droite") return "#60a5fa";
+  return "#cbd5e1";
+}
+
+function hexToRgba(hex, alpha) {
+  const clean = String(hex || "").replace("#", "").trim();
+  if (clean.length !== 6) return `rgba(15,23,42,${alpha})`;
+  const r = Number.parseInt(clean.slice(0, 2), 16);
+  const g = Number.parseInt(clean.slice(2, 4), 16);
+  const b = Number.parseInt(clean.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function renderTrack(track, svgElement, pathElement, showMarkers) {
   const markers = (track && track.markers) || [];
   const path = (track && track.path) || [];
+  const sections = (track && track.sections) || [];
   const svgNs = "http://www.w3.org/2000/svg";
 
   pathElement.setAttribute("points", path.map((p) => `${p.x},${p.y}`).join(" "));
 
+  const existingSections = svgElement.querySelector(".track-sections-layer");
+  if (existingSections) existingSections.remove();
   const existingLayer = svgElement.querySelector(".track-markers-layer");
   if (existingLayer) existingLayer.remove();
+
+  const sectionLayer = document.createElementNS(svgNs, "g");
+  sectionLayer.setAttribute("class", "track-sections-layer");
+  sections.forEach((section) => {
+    const line = document.createElementNS(svgNs, "line");
+    line.setAttribute("x1", String(section.start.x));
+    line.setAttribute("y1", String(section.start.y));
+    line.setAttribute("x2", String(section.end.x));
+    line.setAttribute("y2", String(section.end.y));
+    line.setAttribute("stroke", sectionColor(section.type, section.category));
+    line.setAttribute("class", "track-section-segment");
+    sectionLayer.appendChild(line);
+  });
+  svgElement.insertBefore(sectionLayer, pathElement);
 
   if (!showMarkers) return;
 
@@ -153,6 +191,8 @@ function renderRanking(players, activePlayerId) {
   players.forEach((p, idx) => {
     const card = document.createElement("div");
     card.className = `rank-card ${p.player_id === activePlayerId ? "active" : ""}`;
+    card.style.background = hexToRgba(p.color || "#0f172a", 0.30);
+    card.style.borderColor = p.color || "#334155";
     card.innerHTML = `
       <div class="rank-num">#${idx + 1}</div>
       <div>

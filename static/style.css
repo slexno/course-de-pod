@@ -16,6 +16,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .duel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: 1rem 0; }
 .duel { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: .8rem; min-height: 150px; }
 .ranking, .podium { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.ranking-column { grid-template-columns: 1fr; }
 .rank-card { display: flex; gap: .6rem; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: .7rem; }
 .rank-card.active { border-color:#22d3ee; box-shadow:0 0 0 1px #22d3ee inset; }
 .podium-card { border-color:#fbbf24; }
@@ -31,3 +32,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 
 .track-marker { stroke: #fff; stroke-width: .8; }
 .track-marker-label { font-size: 3px; fill: #111827; font-weight: 800; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+
+.race-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem; align-items: start; }
+.race-sidebar { position: sticky; top: .8rem; }
+#ranking.ranking-column .rank-card { min-height: 74px; }
+.track-section-segment { stroke-width: 3.2; stroke-linecap: round; opacity: 0.95; }
+#track-path, #setup-track-path { stroke: #dbeafe; stroke-width: 1.1; opacity: 0.65; }
+@media (max-width: 980px) { .race-layout { grid-template-columns: 1fr; } .race-sidebar { position: static; } }

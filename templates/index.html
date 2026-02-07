@@ -49,45 +49,51 @@
       </section>
 
       <section class="panel hidden" id="race-panel">
-        <h2>Course</h2>
-        <div id="race-meta"></div>
-        <div id="segment-info"></div>
-        <div id="active-info" class="turn-banner"></div>
+        <div class="race-layout">
+          <div class="race-main">
+            <h2>Course</h2>
+            <div id="race-meta"></div>
+            <div id="segment-info"></div>
+            <div id="active-info" class="turn-banner"></div>
 
-        <div class="weather-row">
-          <label>Météo:</label>
-          <select id="weather-select">
-            <option value="dry">Sec (-0 dex)</option>
-            <option value="windy">Venteux (-1 dex)</option>
-            <option value="light_rain">Pluie légère (-2 dex)</option>
-            <option value="storm">Orage (-4 dex)</option>
-          </select>
-          <button type="button" id="weather-btn">Appliquer</button>
-        </div>
+            <div class="weather-row">
+              <label>Météo:</label>
+              <select id="weather-select">
+                <option value="dry">Sec (-0 dex)</option>
+                <option value="windy">Venteux (-1 dex)</option>
+                <option value="light_rain">Pluie légère (-2 dex)</option>
+                <option value="storm">Orage (-4 dex)</option>
+              </select>
+              <button type="button" id="weather-btn">Appliquer</button>
+            </div>
 
-        <div class="actions">
-          <button type="button" id="overtake-btn">Dépassement</button>
-          <button type="button" id="danger-btn">Dépassement dangereux</button>
-          <button type="button" id="prep-btn">Préparation (+défense)</button>
-          <button type="button" id="next-section-btn">Prochaine section (+attaque)</button>
-          <button type="button" id="pass-btn">Passer</button>
-          <button type="button" id="next-turn-btn">Prochain tour</button>
-          <button type="button" id="restart-btn-2">Recommencer</button>
-        </div>
+            <div class="actions">
+              <button type="button" id="overtake-btn">Dépassement</button>
+              <button type="button" id="danger-btn">Dépassement dangereux</button>
+              <button type="button" id="prep-btn">Préparation (+défense)</button>
+              <button type="button" id="next-section-btn">Prochaine section (+attaque)</button>
+              <button type="button" id="pass-btn">Passer</button>
+              <button type="button" id="next-turn-btn">Prochain tour</button>
+              <button type="button" id="restart-btn-2">Recommencer</button>
+            </div>
 
-        <div class="duel-grid">
-          <div class="duel"><h3>Attaque</h3><div id="attack-box">-</div></div>
-          <div class="duel"><h3>Défence</h3><div id="defense-box">-</div></div>
-        </div>
+            <div class="duel-grid">
+              <div class="duel"><h3>Attaque</h3><div id="attack-box">-</div></div>
+              <div class="duel"><h3>Défence</h3><div id="defense-box">-</div></div>
+            </div>
 
-        <h3>Classement</h3>
-        <div id="ranking" class="ranking"></div>
+            <h3>Carte du circuit</h3>
+            <div class="track-wrap">
+              <svg id="track-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+                <polyline id="track-path" points="" />
+              </svg>
+            </div>
+          </div>
 
-        <h3>Carte du circuit</h3>
-        <div class="track-wrap">
-          <svg id="track-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-            <polyline id="track-path" points="" />
-          </svg>
+          <aside class="race-sidebar">
+            <h3>Classement</h3>
+            <div id="ranking" class="ranking ranking-column"></div>
+          </aside>
         </div>
       </section>
 
