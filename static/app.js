@@ -193,8 +193,9 @@ function renderRanking(players, activePlayerId) {
     card.className = `rank-card ${p.player_id === activePlayerId ? "active" : ""}`;
     card.style.background = hexToRgba(p.color || "#0f172a", 0.30);
     card.style.borderColor = p.color || "#334155";
+    const isActive = p.player_id === activePlayerId;
     card.innerHTML = `
-      <div class="rank-num">#${idx + 1}</div>
+      <div class="rank-num">${isActive ? "🎯 " : ""}#${idx + 1}</div>
       <div>
         <strong>${p.name}</strong><br/>
         ENG ${p.engine_power} | DF ${p.downforce} | DEX ${p.dexterity} | AGR ${p.aggressiveness}<br/>
