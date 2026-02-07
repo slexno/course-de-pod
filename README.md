@@ -5,8 +5,8 @@ Jeu local (localhost) inspiré de F1 Manager / Motorsport Manager, piloté par u
 ## Fichiers à garder (noms exacts)
 
 - `app.py`
-- `circuit.xlsx`
-- `circuit.png`
+- `circuit.xlsx` (optionnel, pour export manuel via le script de génération)
+- `circuit.png` (optionnel, pour export manuel)
 - `templates/index.html`
 - `static/app.js`
 - `static/style.css`
@@ -45,7 +45,8 @@ Puis ouvrir http://127.0.0.1:5000
 - Qualification auto avant la course (1 tour simulé par pilote).
 - Usure pneus progressive (plus forte lors des actions agressives).
 - Bonus de sortie de virage qui influence la ligne droite suivante.
-- Affichage des positions des joueurs sur la carte `circuit.png`.
+- Génération dynamique du circuit dans l'écran de setup (avant le départ).
+- Affichage des positions des joueurs qui suivent le layout généré en temps réel.
 
 
 ## Nouveautés

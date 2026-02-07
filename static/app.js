@@ -12,8 +12,10 @@ const activeInfo = document.getElementById("active-info");
 const ranking = document.getElementById("ranking");
 const attackBox = document.getElementById("attack-box");
 const defenseBox = document.getElementById("defense-box");
-const trackOverlay = document.getElementById("track-overlay");
+const trackSvg = document.getElementById("track-svg");
 const trackPath = document.getElementById("track-path");
+const setupTrackSvg = document.getElementById("setup-track-svg");
+const setupTrackPath = document.getElementById("setup-track-path");
 const podium = document.getElementById("podium");
 const others = document.getElementById("others");
 
@@ -29,6 +31,11 @@ const prepBtn = document.getElementById("prep-btn");
 const nextSectionBtn = document.getElementById("next-section-btn");
 const passBtn = document.getElementById("pass-btn");
 const nextTurnBtn = document.getElementById("next-turn-btn");
+const generateTrackBtn = document.getElementById("generate-track-btn");
+const turnFastInput = document.getElementById("turn-fast-input");
+const turnSlowInput = document.getElementById("turn-slow-input");
+const chicaneInput = document.getElementById("chicane-input");
+const hairpinInput = document.getElementById("hairpin-input");
 
 function buildPlayerRows(count) {
   setupForm.innerHTML = "";
@@ -76,23 +83,40 @@ async function api(url, method = "GET", body = null) {
   return data;
 }
 
-function renderTrack(track) {
+function renderTrack(track, svgElement, pathElement, showMarkers) {
   const markers = (track && track.markers) || [];
   const path = (track && track.path) || [];
+  const svgNs = "http://www.w3.org/2000/svg";
 
-  trackOverlay.innerHTML = "";
-  trackPath.setAttribute("points", path.map((p) => `${p.x},${p.y}`).join(" "));
+  pathElement.setAttribute("points", path.map((p) => `${p.x},${p.y}`).join(" "));
+
+  const existingLayer = svgElement.querySelector(".track-markers-layer");
+  if (existingLayer) existingLayer.remove();
+
+  if (!showMarkers) return;
+
+  const layer = document.createElementNS(svgNs, "g");
+  layer.setAttribute("class", "track-markers-layer");
 
   markers.forEach((m) => {
-    const dot = document.createElement("div");
-    dot.className = "marker";
-    dot.style.left = `${m.x}%`;
-    dot.style.top = `${m.y}%`;
-    dot.style.background = m.color || "#22c55e";
-    dot.title = m.name;
-    dot.textContent = m.name[0].toUpperCase();
-    trackOverlay.appendChild(dot);
+    const circle = document.createElementNS(svgNs, "circle");
+    circle.setAttribute("cx", String(m.x));
+    circle.setAttribute("cy", String(m.y));
+    circle.setAttribute("r", "1.9");
+    circle.setAttribute("fill", m.color || "#22c55e");
+    circle.setAttribute("class", "track-marker");
+
+    const label = document.createElementNS(svgNs, "text");
+    label.setAttribute("x", String(m.x));
+    label.setAttribute("y", String(m.y));
+    label.setAttribute("class", "track-marker-label");
+    label.textContent = (m.name && m.name[0] ? m.name[0] : "?").toUpperCase();
+
+    layer.appendChild(circle);
+    layer.appendChild(label);
   });
+
+  svgElement.appendChild(layer);
 }
 
 function renderLastDuel(lastDuel) {
@@ -165,6 +189,13 @@ function renderState(state) {
   setupPanel.classList.toggle("hidden", started);
   racePanel.classList.toggle("hidden", !started);
 
+  const counts = state.circuit_counts || {};
+  turnFastInput.value = counts.virage_rapide ?? turnFastInput.value;
+  turnSlowInput.value = counts.virage_lent ?? turnSlowInput.value;
+  chicaneInput.value = counts.chicane ?? chicaneInput.value;
+  hairpinInput.value = counts.epingle ?? hairpinInput.value;
+  renderTrack(state.track || {markers: [], path: []}, setupTrackSvg, setupTrackPath, false);
+
   if (!started) {
     endPanel.classList.add("hidden");
     return;
@@ -179,7 +210,7 @@ function renderState(state) {
 
   renderLastDuel(state.last_duel);
   renderRanking(state.players || [], state.active_player ? state.active_player.player_id : null);
-  renderTrack(state.track || {markers: [], path: []});
+  renderTrack(state.track || {markers: [], path: []}, trackSvg, trackPath, true);
 
   const disabled = state.finished;
   [overtakeBtn, dangerBtn, prepBtn, nextSectionBtn, passBtn, nextTurnBtn, weatherBtn].forEach((b) => {
@@ -214,7 +245,16 @@ startBtn.addEventListener("click", async () => {
   }
 
   try {
-    renderState(await api("/api/start", "POST", { players, total_laps: Number(lapsInput.value) }));
+    renderState(await api("/api/start", "POST", {
+      players,
+      total_laps: Number(lapsInput.value),
+      circuit: {
+        virage_rapide: Number(turnFastInput.value),
+        virage_lent: Number(turnSlowInput.value),
+        chicane: Number(chicaneInput.value),
+        epingle: Number(hairpinInput.value),
+      },
+    }));
   } catch (err) {
     showError(err.message);
   }
@@ -250,6 +290,21 @@ nextTurnBtn.addEventListener("click", async () => {
   showError("");
   try {
     renderState(await api("/api/next-turn", "POST", {}));
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+
+generateTrackBtn.addEventListener("click", async () => {
+  showError("");
+  try {
+    renderState(await api("/api/circuit-preview", "POST", {
+      virage_rapide: Number(turnFastInput.value),
+      virage_lent: Number(turnSlowInput.value),
+      chicane: Number(chicaneInput.value),
+      epingle: Number(hairpinInput.value),
+    }));
   } catch (err) {
     showError(err.message);
   }

@@ -13,7 +13,7 @@
       <div id="error-box" class="error hidden"></div>
 
       <section class="panel" id="setup-panel">
-        <h2>Création de voiture</h2>
+        <h2>Création de voiture + circuit</h2>
         <ul class="rules">
           <li><strong>Engine power:</strong> bonus sur les lignes droites uniquement.</li>
           <li><strong>Downforce:</strong> bonus dans les virages uniquement.</li>
@@ -24,6 +24,22 @@
         <div class="actions">
           <label>Joueurs (3-10): <input id="player-count-input" type="number" min="3" max="10" value="4" /></label>
           <label>Tours de course: <input id="laps-input" type="number" min="1" max="20" value="5" /></label>
+        </div>
+
+        <h3>Générateur de circuit</h3>
+        <div class="circuit-grid">
+          <label>Virages rapides: <input id="turn-fast-input" type="number" min="0" value="3" /></label>
+          <label>Virages lents: <input id="turn-slow-input" type="number" min="0" value="4" /></label>
+          <label>Chicanes: <input id="chicane-input" type="number" min="0" value="2" /></label>
+          <label>Épingles: <input id="hairpin-input" type="number" min="0" value="1" /></label>
+        </div>
+        <div class="actions">
+          <button type="button" id="generate-track-btn">Générer un circuit</button>
+        </div>
+        <div class="track-wrap">
+          <svg id="setup-track-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+            <polyline id="setup-track-path" points="" />
+          </svg>
         </div>
         <form id="setup-form"></form>
         <div class="actions">
@@ -72,7 +88,6 @@
           <svg id="track-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
             <polyline id="track-path" points="" />
           </svg>
-          <div id="track-overlay"></div>
         </div>
       </section>
 

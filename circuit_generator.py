@@ -17,7 +17,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
 
-import matplotlib.pyplot as plt
 from openpyxl import Workbook, load_workbook
 
 
@@ -247,6 +246,8 @@ def build_track(counts: dict[str, int], max_attempts: int = 250) -> Tuple[List[S
 
 
 def export_image(points: List[Tuple[float, float]], output: Path) -> None:
+    import matplotlib.pyplot as plt
+
     xs, ys = zip(*points)
     plt.figure(figsize=(10, 8))
     plt.plot(xs, ys, linewidth=7, color="#222")

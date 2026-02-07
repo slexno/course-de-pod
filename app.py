@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from flask import Flask, jsonify, render_template, request, send_file
-from openpyxl import load_workbook
+
+from circuit_generator import build_track
 
 BASE_DIR = Path(__file__).resolve().parent
-CIRCUIT_FILE = BASE_DIR / "circuit.xlsx"
 CIRCUIT_PNG = BASE_DIR / "circuit.png"
 
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"), static_folder=str(BASE_DIR / "static"))
@@ -46,6 +46,14 @@ class GameState:
         self.weather = "dry"
         self.current_lap = 1
         self.total_laps = 3
+        self.circuit_segments: list[dict[str, Any]] = []
+        self.circuit_points: list[tuple[float, float]] = []
+        self.circuit_counts: dict[str, int] = {
+            "virage_rapide": 3,
+            "virage_lent": 4,
+            "chicane": 2,
+            "epingle": 1,
+        }
 
     @property
     def started(self) -> bool:
@@ -81,67 +89,31 @@ def weather_dex_penalty() -> int:
 
 
 def load_circuit_segments() -> list[dict[str, Any]]:
-    """Charge les segments Circuit en restant compatible avec variantes de colonnes."""
-    if not CIRCUIT_FILE.exists():
-        return []
+    return game_state.circuit_segments
 
-    wb = load_workbook(CIRCUIT_FILE, data_only=True)
-    if "Circuit" not in wb.sheetnames:
-        return []
 
-    ws = wb["Circuit"]
-    segments: list[dict[str, Any]] = []
+def ensure_circuit() -> None:
+    if game_state.circuit_segments:
+        return
+    game_state.circuit_segments, game_state.circuit_points = generate_circuit(game_state.circuit_counts)
 
-    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
-    header_map: dict[str, int] = {}
-    for i, col in enumerate(header_row):
-        if col is None:
-            continue
-        header_map[str(col).strip().lower()] = i
 
-    def pick(row: tuple[Any, ...], *names: str, default: Any = None) -> Any:
-        for name in names:
-            idx = header_map.get(name.lower())
-            if idx is not None and idx < len(row):
-                return row[idx]
-        return default
-
-    for fallback_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=1):
-        idx_raw = pick(row, "index", "idx", default=fallback_idx)
-        if idx_raw is None:
-            continue
-
-        start_x = pick(row, "debut_x", "start_x", "x0", default=0)
-        start_y = pick(row, "debut_y", "start_y", "y0", default=0)
-        end_x = pick(row, "fin_x", "end_x", "x1", default=start_x)
-        end_y = pick(row, "fin_y", "end_y", "y1", default=start_y)
-
-        segments.append(
-            {
-                "index": safe_int(idx_raw, fallback_idx),
-                "type": pick(row, "type", "type_segment", default="inconnu") or "inconnu",
-                "category": pick(row, "categorie", "category", "segment_category", default="inconnu") or "inconnu",
-                "length_m": float(pick(row, "longueur_m", "length_m", default=0) or 0),
-                "start_x": float(start_x or 0),
-                "start_y": float(start_y or 0),
-                "end_x": float(end_x or 0),
-                "end_y": float(end_y or 0),
-            }
-        )
-
-    # fallback géométrie si aucune coordonnée exploitable
-    if segments and all(
-        s["start_x"] == 0 and s["start_y"] == 0 and s["end_x"] == 0 and s["end_y"] == 0
-        for s in segments
-    ):
-        x = 0.0
-        for s in segments:
-            length = max(30.0, s["length_m"] or 30.0)
-            s["start_x"], s["start_y"] = x, 0.0
-            x += length
-            s["end_x"], s["end_y"] = x, 0.0
-
-    return segments
+def generate_circuit(counts: dict[str, int]) -> tuple[list[dict[str, Any]], list[tuple[float, float]]]:
+    generated_segments, generated_points = build_track(counts)
+    segments = [
+        {
+            "index": seg.index,
+            "type": seg.type_segment,
+            "category": seg.categorie,
+            "length_m": float(seg.longueur_m),
+            "start_x": float(seg.debut_x),
+            "start_y": float(seg.debut_y),
+            "end_x": float(seg.fin_x),
+            "end_y": float(seg.fin_y),
+        }
+        for seg in generated_segments
+    ]
+    return segments, generated_points
 
 
 def wear_penalty(player: Player) -> int:
@@ -281,8 +253,9 @@ def track_data(segments: list[dict[str, Any]]) -> dict[str, Any]:
     if not segments:
         return {"markers": [], "path": []}
 
-    points: list[tuple[float, float]] = [(segments[0]["start_x"], segments[0]["start_y"]) ]
-    points.extend((s["end_x"], s["end_y"]) for s in segments)
+    points = game_state.circuit_points or [(segments[0]["start_x"], segments[0]["start_y"])]
+    if not game_state.circuit_points:
+        points.extend((s["end_x"], s["end_y"]) for s in segments)
 
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
@@ -298,13 +271,23 @@ def track_data(segments: list[dict[str, Any]]) -> dict[str, Any]:
 
     path = [{"x": normalize(x, y)[0], "y": normalize(x, y)[1]} for x, y in points]
 
-    seg = segments[game_state.segment_index]
-    sx, sy = seg["start_x"], seg["start_y"]
-    ex, ey = seg["end_x"], seg["end_y"]
-    dx, dy = ex - sx, ey - sy
-    norm = math.hypot(dx, dy) or 1.0
-    # vecteur perpendiculaire pour espacer les pions latéralement sur la section
-    px, py = -dy / norm, dx / norm
+    cumulative_lengths = [0.0]
+    for i in range(1, len(points)):
+        prev_x, prev_y = points[i - 1]
+        x, y = points[i]
+        cumulative_lengths.append(cumulative_lengths[-1] + math.hypot(x - prev_x, y - prev_y))
+    total_length = cumulative_lengths[-1] or 1.0
+
+    def point_from_ratio(ratio: float) -> tuple[float, float]:
+        target = (ratio % 1.0) * total_length
+        for i in range(1, len(cumulative_lengths)):
+            if cumulative_lengths[i] >= target:
+                seg_len = max(1e-6, cumulative_lengths[i] - cumulative_lengths[i - 1])
+                t = (target - cumulative_lengths[i - 1]) / seg_len
+                x0, y0 = points[i - 1]
+                x1, y1 = points[i]
+                return (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+        return points[-1]
 
     markers = []
     count = max(1, len(game_state.positions))
@@ -313,12 +296,9 @@ def track_data(segments: list[dict[str, Any]]) -> dict[str, Any]:
         if player is None:
             continue
 
-        # rang => position le long de la section (plus proche sortie pour leader)
-        t = 0.82 - (i * (0.6 / max(1, count - 1))) if count > 1 else 0.6
-        # petit décalage latéral pour lisibilité
-        lateral = (i - (count - 1) / 2) * 3.0
-        x = sx + dx * t + px * lateral
-        y = sy + dy * t + py * lateral
+        gap = 0.02
+        ratio = (game_state.segment_index + 0.85 - (i * gap * len(segments))) / max(1, len(segments))
+        x, y = point_from_ratio(ratio)
 
         mx, my = normalize(x, y)
         markers.append({
@@ -366,6 +346,7 @@ def final_stats() -> dict[str, Any]:
 
 
 def serialize_state() -> dict[str, Any]:
+    ensure_circuit()
     segments = load_circuit_segments()
     by_id = {p.player_id: p for p in game_state.players}
     ranking = [asdict(by_id[pid]) for pid in game_state.positions if pid in by_id]
@@ -387,7 +368,8 @@ def serialize_state() -> dict[str, Any]:
         "total_laps": game_state.total_laps,
         "finished": finished,
         "track": track_data(segments),
-        "circuit_file": str(CIRCUIT_FILE),
+        "circuit_file": "generated_in_memory",
+        "circuit_counts": game_state.circuit_counts,
         "final_stats": final_stats() if finished and game_state.started else None,
     }
 
@@ -413,16 +395,27 @@ def get_state() -> Any:
 def restart() -> Any:
     global game_state
     game_state = GameState()
+    return jsonify(serialize_state())
 
 
-PLAYER_COLORS = [
-    "#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7",
-    "#06b6d4", "#f97316", "#84cc16", "#e879f9", "#14b8a6",
-]
 
 
-def color_for_player(idx: int) -> str:
-    return PLAYER_COLORS[(idx - 1) % len(PLAYER_COLORS)]
+@app.post("/api/circuit-preview")
+def circuit_preview() -> Any:
+    payload = request.get_json(silent=True) or {}
+    counts = {
+        "virage_rapide": max(0, safe_int(payload.get("virage_rapide"), game_state.circuit_counts["virage_rapide"])),
+        "virage_lent": max(0, safe_int(payload.get("virage_lent"), game_state.circuit_counts["virage_lent"])),
+        "chicane": max(0, safe_int(payload.get("chicane"), game_state.circuit_counts["chicane"])),
+        "epingle": max(0, safe_int(payload.get("epingle"), game_state.circuit_counts["epingle"])),
+    }
+    if sum(counts.values()) <= 0:
+        return jsonify({"error": "Le circuit doit contenir au moins un virage."}), 400
+
+    game_state.circuit_counts = counts
+    game_state.circuit_segments, game_state.circuit_points = generate_circuit(counts)
+    game_state.segment_index = 0
+    game_state.last_duel = {"info": "Nouveau circuit généré."}
     return jsonify(serialize_state())
 
 
@@ -434,6 +427,15 @@ def start_game() -> Any:
         return jsonify({"error": "Il faut entre 3 et 10 joueurs."}), 400
 
     total_laps = max(1, min(20, safe_int(payload.get("total_laps"), 5)))
+    circuit_payload = payload.get("circuit", {})
+    counts = {
+        "virage_rapide": max(0, safe_int(circuit_payload.get("virage_rapide"), game_state.circuit_counts["virage_rapide"])),
+        "virage_lent": max(0, safe_int(circuit_payload.get("virage_lent"), game_state.circuit_counts["virage_lent"])),
+        "chicane": max(0, safe_int(circuit_payload.get("chicane"), game_state.circuit_counts["chicane"])),
+        "epingle": max(0, safe_int(circuit_payload.get("epingle"), game_state.circuit_counts["epingle"])),
+    }
+    if sum(counts.values()) <= 0:
+        return jsonify({"error": "Le circuit doit contenir au moins un virage."}), 400
 
     players: list[Player] = []
     for idx, row in enumerate(players_payload, start=1):
@@ -455,8 +457,10 @@ def start_game() -> Any:
     game_state.active_position_index = 0
     game_state.last_duel = None
     game_state.weather = "dry"
+    game_state.circuit_counts = counts
+    game_state.circuit_segments, game_state.circuit_points = generate_circuit(counts)
 
-    segments = load_circuit_segments()
+    segments = game_state.circuit_segments
     game_state.positions = qualification_order(segments) if segments else [p.player_id for p in players]
 
     return jsonify(serialize_state())
