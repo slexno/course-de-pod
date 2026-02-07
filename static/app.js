@@ -295,10 +295,13 @@ function renderState(state) {
   }
 
   weatherSelect.value = state.weather;
-  raceMeta.innerHTML = `<strong>Tour ${state.lap}/${state.total_laps}</strong> | Joueurs: ${state.player_count} | Météo: ${state.weather} (malus dextérité ${state.weather_dex_penalty})${state.finished ? " | <span class='warning'>Course terminée</span>" : ""}`;
-  segmentInfo.textContent = state.segment
-    ? `Section ${state.segment_index + 1}/${state.segment_count}: ${state.segment.type} (${state.segment.category})`
-    : `Aucun segment trouvé dans ${state.circuit_file}`;
+  raceMeta.innerHTML = `
+    <span class="status-label">Progression de course</span>
+    <div class="status-main">Tour <strong>${state.lap}</strong> / ${state.total_laps}${state.finished ? " <span class='warning'>(terminée)</span>" : ""}</div>
+    <div class="status-sub">Joueurs: ${state.player_count} · Météo: ${state.weather} (malus DEX ${state.weather_dex_penalty})</div>`;
+  segmentInfo.innerHTML = state.segment
+    ? `<span class="status-label">Section actuelle</span><div class="status-main">Section <strong>${state.segment_index + 1}</strong> / ${state.segment_count}<span class="section-chip">${state.segment.category}</span></div><div class="status-sub">Type: ${state.segment.type}</div>`
+    : `<span class="status-label">Section actuelle</span><div class="status-main">Aucun segment trouvé</div><div class="status-sub">${state.circuit_file}</div>`;
   activeInfo.textContent = state.active_player ? `🎯 TOUR EN COURS: ${state.active_player.name.toUpperCase()}` : "";
 
   renderLastDuel(state.last_duel);
