@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Générateur de circuit type Formule 1.
 
-- Demande le nombre de virages rapides/lents, chicanes et épingles.
+- Demande le nombre de virages rapides/lents/moyens et épingles.
 - Génère un tracé fermé qui revient sur la ligne droite des stands.
 - Évite les tracés auto-chevauchants.
 - Exporte une image PNG du circuit.
@@ -36,7 +36,7 @@ class Segment:
 TURN_LIBRARY = {
     "virage_rapide": {"angle": (25, 45), "radius": (90, 150)},
     "virage_lent": {"angle": (55, 95), "radius": (35, 75)},
-    "chicane": {"angle": (28, 45), "radius": (30, 55)},
+    "virage_moyen": {"angle": (40, 60), "radius": (60, 100)},
     "epingle": {"angle": (130, 170), "radius": (18, 28)},
 }
 
@@ -210,15 +210,8 @@ def build_track_once(counts: dict[str, int]) -> Tuple[List[Segment], List[Tuple[
     add_straight(segments, points, heading, pit_length, category="ligne_des_stands")
 
     for i, turn_type in enumerate(turns):
-        if turn_type == "chicane":
-            dir_a = random.choice([-1, 1])
-            heading = add_arc(segments, points, heading, turn_type, dir_a)
-            short_straight = random.uniform(45, 90)
-            add_straight(segments, points, heading, short_straight, category="liaison_chicane")
-            heading = add_arc(segments, points, heading, turn_type, -dir_a)
-        else:
-            direction = random.choice([-1, 1])
-            heading = add_arc(segments, points, heading, turn_type, direction)
+        direction = random.choice([-1, 1])
+        heading = add_arc(segments, points, heading, turn_type, direction)
 
         if i < len(turns) - 1:
             straight_len = random.uniform(80, 260)
@@ -326,7 +319,7 @@ def main() -> None:
     counts = {
         "virage_rapide": ask_int("Nombre de virages rapides : "),
         "virage_lent": ask_int("Nombre de virages lents : "),
-        "chicane": ask_int("Nombre de chicanes : "),
+        "virage_moyen": ask_int("Nombre de virages à vitesse moyenne : "),
         "epingle": ask_int("Nombre d'épingles : "),
     }
 

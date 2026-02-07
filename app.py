@@ -51,7 +51,7 @@ class GameState:
         self.circuit_counts: dict[str, int] = {
             "virage_rapide": 3,
             "virage_lent": 4,
-            "chicane": 2,
+            "virage_moyen": 2,
             "epingle": 1,
         }
 
@@ -270,10 +270,25 @@ def track_data(segments: list[dict[str, Any]]) -> dict[str, Any]:
         return x_pct, y_pct
 
     path = [{"x": normalize(x, y)[0], "y": normalize(x, y)[1]} for x, y in points]
-    sections = []
+    cumulative_section_lengths = [0.0]
     for seg in segments:
-        sx, sy = normalize(seg["start_x"], seg["start_y"])
-        ex, ey = normalize(seg["end_x"], seg["end_y"])
+        cumulative_section_lengths.append(cumulative_section_lengths[-1] + max(1e-6, seg["length_m"]))
+    total_section_length = cumulative_section_lengths[-1] or 1.0
+
+    section_idx = 0
+    sections = []
+    travel = 0.0
+    for i in range(1, len(points)):
+        x0, y0 = points[i - 1]
+        x1, y1 = points[i]
+        piece_len = math.hypot(x1 - x0, y1 - y0)
+        midpoint = travel + (piece_len / 2)
+        section_distance = (midpoint / max(1e-6, sum(math.hypot(points[j][0]-points[j-1][0], points[j][1]-points[j-1][1]) for j in range(1, len(points))))) * total_section_length
+        while section_idx < len(segments) - 1 and section_distance > cumulative_section_lengths[section_idx + 1]:
+            section_idx += 1
+        seg = segments[section_idx]
+        sx, sy = normalize(x0, y0)
+        ex, ey = normalize(x1, y1)
         sections.append({
             "index": seg["index"],
             "type": seg["type"],
@@ -281,6 +296,7 @@ def track_data(segments: list[dict[str, Any]]) -> dict[str, Any]:
             "start": {"x": sx, "y": sy},
             "end": {"x": ex, "y": ey},
         })
+        travel += piece_len
 
     cumulative_lengths = [0.0]
     for i in range(1, len(points)):
@@ -417,7 +433,7 @@ def circuit_preview() -> Any:
     counts = {
         "virage_rapide": max(0, safe_int(payload.get("virage_rapide"), game_state.circuit_counts["virage_rapide"])),
         "virage_lent": max(0, safe_int(payload.get("virage_lent"), game_state.circuit_counts["virage_lent"])),
-        "chicane": max(0, safe_int(payload.get("chicane"), game_state.circuit_counts["chicane"])),
+        "virage_moyen": max(0, safe_int(payload.get("virage_moyen"), game_state.circuit_counts["virage_moyen"])),
         "epingle": max(0, safe_int(payload.get("epingle"), game_state.circuit_counts["epingle"])),
     }
     if sum(counts.values()) <= 0:
@@ -442,7 +458,7 @@ def start_game() -> Any:
     counts = {
         "virage_rapide": max(0, safe_int(circuit_payload.get("virage_rapide"), game_state.circuit_counts["virage_rapide"])),
         "virage_lent": max(0, safe_int(circuit_payload.get("virage_lent"), game_state.circuit_counts["virage_lent"])),
-        "chicane": max(0, safe_int(circuit_payload.get("chicane"), game_state.circuit_counts["chicane"])),
+        "virage_moyen": max(0, safe_int(circuit_payload.get("virage_moyen"), game_state.circuit_counts["virage_moyen"])),
         "epingle": max(0, safe_int(circuit_payload.get("epingle"), game_state.circuit_counts["epingle"])),
     }
     if sum(counts.values()) <= 0:
@@ -459,6 +475,8 @@ def start_game() -> Any:
             return jsonify({"error": "Chaque joueur doit avoir un nom."}), 400
         if not (0 <= engine <= 20 and 0 <= downforce <= 20 and 0 <= dex <= 20 and 0 <= aggr <= 20):
             return jsonify({"error": "Toutes les stats doivent être entre 0 et 20."}), 400
+        if engine + downforce + dex + aggr != 50:
+            return jsonify({"error": "La somme des 4 stats doit être exactement 50 pour chaque joueur."}), 400
         players.append(Player(player_id=idx, name=name, engine_power=engine, downforce=downforce, dexterity=dex, aggressiveness=aggr, color=color_for_player(idx)))
 
     game_state.players = players
@@ -468,8 +486,10 @@ def start_game() -> Any:
     game_state.active_position_index = 0
     game_state.last_duel = None
     game_state.weather = "dry"
+    reuse_preview = game_state.circuit_segments and counts == game_state.circuit_counts
     game_state.circuit_counts = counts
-    game_state.circuit_segments, game_state.circuit_points = generate_circuit(counts)
+    if not reuse_preview:
+        game_state.circuit_segments, game_state.circuit_points = generate_circuit(counts)
 
     segments = game_state.circuit_segments
     game_state.positions = qualification_order(segments) if segments else [p.player_id for p in players]

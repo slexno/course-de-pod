@@ -34,8 +34,47 @@ const nextTurnBtn = document.getElementById("next-turn-btn");
 const generateTrackBtn = document.getElementById("generate-track-btn");
 const turnFastInput = document.getElementById("turn-fast-input");
 const turnSlowInput = document.getElementById("turn-slow-input");
-const chicaneInput = document.getElementById("chicane-input");
+const mediumTurnInput = document.getElementById("medium-turn-input");
 const hairpinInput = document.getElementById("hairpin-input");
+
+function bindPlayerRowTotals(row) {
+  const sliders = [
+    row.querySelector(".stat-engine"),
+    row.querySelector(".stat-downforce"),
+    row.querySelector(".stat-dex"),
+    row.querySelector(".stat-aggr"),
+  ];
+  const totalEl = row.querySelector(".stat-total");
+
+  const sync = () => {
+    let sum = sliders.reduce((acc, el) => acc + Number(el.value), 0);
+    let changed = false;
+    sliders.forEach((el) => {
+      const other = sum - Number(el.value);
+      const maxAllowed = Math.max(0, Math.min(20, 50 - other));
+      el.max = String(maxAllowed);
+      if (Number(el.value) > maxAllowed) {
+        el.value = String(maxAllowed);
+        changed = true;
+      }
+    });
+    if (changed) {
+      sync();
+      return;
+    }
+
+    sum = sliders.reduce((acc, el) => acc + Number(el.value), 0);
+    row.querySelector(".val-engine").textContent = sliders[0].value;
+    row.querySelector(".val-downforce").textContent = sliders[1].value;
+    row.querySelector(".val-dex").textContent = sliders[2].value;
+    row.querySelector(".val-aggr").textContent = sliders[3].value;
+    totalEl.textContent = `Total stats: ${sum}/50`;
+    totalEl.classList.toggle("invalid", sum !== 50);
+  };
+
+  sliders.forEach((el) => el.addEventListener("input", sync));
+  sync();
+}
 
 function buildPlayerRows(count) {
   setupForm.innerHTML = "";
@@ -43,12 +82,16 @@ function buildPlayerRows(count) {
     const row = document.createElement("div");
     row.className = "player-grid";
     row.innerHTML = `
-      <input name="name-${i}" placeholder="Pilote ${i}" value="Pilote ${i}" />
-      <input name="engine-${i}" type="number" min="0" max="20" value="10" />
-      <input name="downforce-${i}" type="number" min="0" max="20" value="10" />
-      <input name="dex-${i}" type="number" min="0" max="20" value="10" />
-      <input name="aggr-${i}" type="number" min="0" max="20" value="10" />`;
+      <div>
+        <input name="name-${i}" placeholder="Pilote ${i}" value="Pilote ${i}" />
+        <div class="stat-total">Total stats: 50/50</div>
+      </div>
+      <label>ENG <span class="stat-val val-engine">13</span><input class="stat-engine" name="engine-${i}" type="range" min="0" max="20" value="13" /></label>
+      <label>DF <span class="stat-val val-downforce">13</span><input class="stat-downforce" name="downforce-${i}" type="range" min="0" max="20" value="13" /></label>
+      <label>DEX <span class="stat-val val-dex">12</span><input class="stat-dex" name="dex-${i}" type="range" min="0" max="20" value="12" /></label>
+      <label>AGR <span class="stat-val val-aggr">12</span><input class="stat-aggr" name="aggr-${i}" type="range" min="0" max="20" value="12" /></label>`;
     setupForm.appendChild(row);
+    bindPlayerRowTotals(row);
   }
 }
 
@@ -87,7 +130,7 @@ async function api(url, method = "GET", body = null) {
 function sectionColor(sectionType, sectionCategory) {
   if (sectionCategory === "ligne_des_stands") return "#f59e0b";
   if (sectionCategory === "retour_stands") return "#eab308";
-  if (sectionCategory === "chicane") return "#a855f7";
+  if (sectionCategory === "virage_moyen") return "#a855f7";
   if (sectionCategory === "epingle") return "#ef4444";
   if (sectionCategory === "virage_lent") return "#f97316";
   if (sectionCategory === "virage_rapide") return "#22c55e";
@@ -241,7 +284,7 @@ function renderState(state) {
   const counts = state.circuit_counts || {};
   turnFastInput.value = counts.virage_rapide ?? turnFastInput.value;
   turnSlowInput.value = counts.virage_lent ?? turnSlowInput.value;
-  chicaneInput.value = counts.chicane ?? chicaneInput.value;
+  mediumTurnInput.value = counts.virage_moyen ?? mediumTurnInput.value;
   hairpinInput.value = counts.epingle ?? hairpinInput.value;
   renderTrack(state.track || {markers: [], path: []}, setupTrackSvg, setupTrackPath, false);
 
@@ -300,7 +343,7 @@ startBtn.addEventListener("click", async () => {
       circuit: {
         virage_rapide: Number(turnFastInput.value),
         virage_lent: Number(turnSlowInput.value),
-        chicane: Number(chicaneInput.value),
+        virage_moyen: Number(mediumTurnInput.value),
         epingle: Number(hairpinInput.value),
       },
     }));
@@ -351,7 +394,7 @@ generateTrackBtn.addEventListener("click", async () => {
     renderState(await api("/api/circuit-preview", "POST", {
       virage_rapide: Number(turnFastInput.value),
       virage_lent: Number(turnSlowInput.value),
-      chicane: Number(chicaneInput.value),
+      virage_moyen: Number(mediumTurnInput.value),
       epingle: Number(hairpinInput.value),
     }));
   } catch (err) {
