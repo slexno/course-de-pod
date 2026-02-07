@@ -1,0 +1,14 @@
+:root { color-scheme: dark; font-family: Inter, Arial, sans-serif; }
+body { margin: 0; background: #12131b; color: #f4f4f5; }
+main { max-width: 1050px; margin: 1.5rem auto; padding: 1rem; }
+.panel { background: #1d2230; border: 1px solid #2f374d; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+.subtitle { color: #9ca3af; }
+.hidden { display: none; }
+.error { background: #7f1d1d; border: 1px solid #ef4444; color: #fecaca; border-radius: 8px; padding: .6rem .8rem; margin-bottom: 1rem; }
+.warning { color: #fca5a5; font-weight: 600; }
+.player-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: .6rem; margin: .6rem 0; }
+input, select { width: 100%; box-sizing: border-box; background: #0f1320; color: white; border: 1px solid #374151; border-radius: 6px; padding: .45rem; }
+button { background: #2563eb; color: white; border: none; border-radius: 8px; padding: .55rem .75rem; margin: .2rem; cursor: pointer; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.actions, .weather-row { margin: .8rem 0; }
+.roll-box { min-height: 2rem; background: #0f1320; border: 1px dashed #4b5563; border-radius: 8px; padding: .7rem; }

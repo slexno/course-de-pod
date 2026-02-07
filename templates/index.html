@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>F1 Tabletop Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <main>
+      <h1>F1 Tabletop Manager (4 joueurs + 1 MJ)</h1>
+      <p class="subtitle">Jet d20 + modificateur affiché. Le MJ décide du résultat du dépassement.</p>
+
+      <div id="error-box" class="error hidden"></div>
+
+      <section class="panel" id="setup-panel">
+        <h2>Création des voitures</h2>
+        <p>Stats 1-10: moteur, downforce, talent pilote, fiabilité moteur.</p>
+        <label>Tours de course (1-10): <input id="laps-input" type="number" min="1" max="10" value="3" /></label>
+        <form id="setup-form"></form>
+        <button type="button" id="start-btn">Démarrer la course</button>
+      </section>
+
+      <section class="panel hidden" id="race-panel">
+        <h2>État de course</h2>
+        <div id="race-meta"></div>
+        <div id="segment-info"></div>
+        <div id="active-info"></div>
+        <ol id="ranking"></ol>
+
+        <div class="weather-row">
+          <label>Météo: </label>
+          <select id="weather-select">
+            <option value="dry">Sec</option>
+            <option value="cloudy">Nuageux</option>
+            <option value="rain">Pluie</option>
+            <option value="storm">Orage</option>
+          </select>
+          <button type="button" id="weather-btn">Appliquer météo</button>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="roll-btn">Lancer un test de dépassement</button>
+          <button type="button" id="success-btn">Dépassement réussi</button>
+          <button type="button" id="fail-btn">Dépassement raté</button>
+          <button type="button" id="pit-btn">Passer au stand</button>
+          <button type="button" id="next-btn">Prochain joueur / prochain virage</button>
+        </div>
+
+        <div id="roll-result" class="roll-box"></div>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
