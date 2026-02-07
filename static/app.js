@@ -13,6 +13,7 @@ const ranking = document.getElementById("ranking");
 const attackBox = document.getElementById("attack-box");
 const defenseBox = document.getElementById("defense-box");
 const trackOverlay = document.getElementById("track-overlay");
+const trackPath = document.getElementById("track-path");
 const podium = document.getElementById("podium");
 const others = document.getElementById("others");
 
@@ -75,13 +76,19 @@ async function api(url, method = "GET", body = null) {
   return data;
 }
 
-function renderTrack(markers) {
+function renderTrack(track) {
+  const markers = (track && track.markers) || [];
+  const path = (track && track.path) || [];
+
   trackOverlay.innerHTML = "";
+  trackPath.setAttribute("points", path.map((p) => `${p.x},${p.y}`).join(" "));
+
   markers.forEach((m) => {
     const dot = document.createElement("div");
     dot.className = "marker";
     dot.style.left = `${m.x}%`;
     dot.style.top = `${m.y}%`;
+    dot.style.background = m.color || "#22c55e";
     dot.title = m.name;
     dot.textContent = m.name[0].toUpperCase();
     trackOverlay.appendChild(dot);
@@ -172,7 +179,7 @@ function renderState(state) {
 
   renderLastDuel(state.last_duel);
   renderRanking(state.players || [], state.active_player ? state.active_player.player_id : null);
-  renderTrack((state.track && state.track.markers) || []);
+  renderTrack(state.track || {markers: [], path: []});
 
   const disabled = state.finished;
   [overtakeBtn, dangerBtn, prepBtn, nextSectionBtn, passBtn, nextTurnBtn, weatherBtn].forEach((b) => {

@@ -33,6 +33,7 @@ class Player:
     successful_overtakes: int = 0
     successful_defenses: int = 0
     malus_count: int = 0
+    color: str = "#22c55e"
 
 
 class GameState:
@@ -54,6 +55,16 @@ class GameState:
 game_state = GameState()
 
 
+PLAYER_COLORS = [
+    "#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7",
+    "#06b6d4", "#f97316", "#84cc16", "#e879f9", "#14b8a6",
+]
+
+
+def color_for_player(idx: int) -> str:
+    return PLAYER_COLORS[(idx - 1) % len(PLAYER_COLORS)]
+
+
 def safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
@@ -70,6 +81,7 @@ def weather_dex_penalty() -> int:
 
 
 def load_circuit_segments() -> list[dict[str, Any]]:
+    """Charge les segments Circuit en restant compatible avec variantes de colonnes."""
     if not CIRCUIT_FILE.exists():
         return []
 
@@ -80,21 +92,55 @@ def load_circuit_segments() -> list[dict[str, Any]]:
     ws = wb["Circuit"]
     segments: list[dict[str, Any]] = []
 
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[0] is None:
+    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+    header_map: dict[str, int] = {}
+    for i, col in enumerate(header_row):
+        if col is None:
             continue
+        header_map[str(col).strip().lower()] = i
+
+    def pick(row: tuple[Any, ...], *names: str, default: Any = None) -> Any:
+        for name in names:
+            idx = header_map.get(name.lower())
+            if idx is not None and idx < len(row):
+                return row[idx]
+        return default
+
+    for fallback_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=1):
+        idx_raw = pick(row, "index", "idx", default=fallback_idx)
+        if idx_raw is None:
+            continue
+
+        start_x = pick(row, "debut_x", "start_x", "x0", default=0)
+        start_y = pick(row, "debut_y", "start_y", "y0", default=0)
+        end_x = pick(row, "fin_x", "end_x", "x1", default=start_x)
+        end_y = pick(row, "fin_y", "end_y", "y1", default=start_y)
+
         segments.append(
             {
-                "index": safe_int(row[0]),
-                "type": row[1] or "inconnu",
-                "category": row[2] or "inconnu",
-                "length_m": float(row[3] or 0),
-                "start_x": float(row[5] or 0),
-                "start_y": float(row[6] or 0),
-                "end_x": float(row[7] or 0),
-                "end_y": float(row[8] or 0),
+                "index": safe_int(idx_raw, fallback_idx),
+                "type": pick(row, "type", "type_segment", default="inconnu") or "inconnu",
+                "category": pick(row, "categorie", "category", "segment_category", default="inconnu") or "inconnu",
+                "length_m": float(pick(row, "longueur_m", "length_m", default=0) or 0),
+                "start_x": float(start_x or 0),
+                "start_y": float(start_y or 0),
+                "end_x": float(end_x or 0),
+                "end_y": float(end_y or 0),
             }
         )
+
+    # fallback géométrie si aucune coordonnée exploitable
+    if segments and all(
+        s["start_x"] == 0 and s["start_y"] == 0 and s["end_x"] == 0 and s["end_y"] == 0
+        for s in segments
+    ):
+        x = 0.0
+        for s in segments:
+            length = max(30.0, s["length_m"] or 30.0)
+            s["start_x"], s["start_y"] = x, 0.0
+            x += length
+            s["end_x"], s["end_y"] = x, 0.0
+
     return segments
 
 
@@ -233,28 +279,57 @@ def advance_turn() -> None:
 
 def track_data(segments: list[dict[str, Any]]) -> dict[str, Any]:
     if not segments:
-        return {"markers": [], "bounds": None}
+        return {"markers": [], "path": []}
 
-    xs = [segments[0]["start_x"]] + [s["end_x"] for s in segments]
-    ys = [segments[0]["start_y"]] + [s["end_y"] for s in segments]
+    points: list[tuple[float, float]] = [(segments[0]["start_x"], segments[0]["start_y"]) ]
+    points.extend((s["end_x"], s["end_y"]) for s in segments)
+
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
+    span_x = max(max_x - min_x, 1e-6)
+    span_y = max(max_y - min_y, 1e-6)
+
+    def normalize(x: float, y: float) -> tuple[float, float]:
+        x_pct = 4 + (92 * ((x - min_x) / span_x))
+        y_pct = 96 - (92 * ((y - min_y) / span_y))
+        return x_pct, y_pct
+
+    path = [{"x": normalize(x, y)[0], "y": normalize(x, y)[1]} for x, y in points]
 
     seg = segments[game_state.segment_index]
+    sx, sy = seg["start_x"], seg["start_y"]
+    ex, ey = seg["end_x"], seg["end_y"]
+    dx, dy = ex - sx, ey - sy
+    norm = math.hypot(dx, dy) or 1.0
+    # vecteur perpendiculaire pour espacer les pions latéralement sur la section
+    px, py = -dy / norm, dx / norm
+
     markers = []
-    step = 0.7 / max(1, len(game_state.positions))
+    count = max(1, len(game_state.positions))
     for i, pid in enumerate(game_state.positions):
         player = get_player_by_id(pid)
         if player is None:
             continue
-        t = 0.15 + step * i
-        px = seg["start_x"] + (seg["end_x"] - seg["start_x"]) * t
-        py = seg["start_y"] + (seg["end_y"] - seg["start_y"]) * t
-        x_pct = 5 + (90 * ((px - min_x) / (max_x - min_x + 1e-6)))
-        y_pct = 95 - (90 * ((py - min_y) / (max_y - min_y + 1e-6)))
-        markers.append({"name": player.name, "x": x_pct, "y": y_pct, "status": "running"})
 
-    return {"markers": markers, "bounds": {"min_x": min_x, "max_x": max_x, "min_y": min_y, "max_y": max_y}}
+        # rang => position le long de la section (plus proche sortie pour leader)
+        t = 0.82 - (i * (0.6 / max(1, count - 1))) if count > 1 else 0.6
+        # petit décalage latéral pour lisibilité
+        lateral = (i - (count - 1) / 2) * 3.0
+        x = sx + dx * t + px * lateral
+        y = sy + dy * t + py * lateral
+
+        mx, my = normalize(x, y)
+        markers.append({
+            "name": player.name,
+            "x": mx,
+            "y": my,
+            "color": player.color,
+            "status": "running",
+        })
+
+    return {"markers": markers, "path": path}
 
 
 def qualification_order(segments: list[dict[str, Any]]) -> list[int]:
@@ -338,6 +413,16 @@ def get_state() -> Any:
 def restart() -> Any:
     global game_state
     game_state = GameState()
+
+
+PLAYER_COLORS = [
+    "#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7",
+    "#06b6d4", "#f97316", "#84cc16", "#e879f9", "#14b8a6",
+]
+
+
+def color_for_player(idx: int) -> str:
+    return PLAYER_COLORS[(idx - 1) % len(PLAYER_COLORS)]
     return jsonify(serialize_state())
 
 
@@ -361,7 +446,7 @@ def start_game() -> Any:
             return jsonify({"error": "Chaque joueur doit avoir un nom."}), 400
         if not (0 <= engine <= 20 and 0 <= downforce <= 20 and 0 <= dex <= 20 and 0 <= aggr <= 20):
             return jsonify({"error": "Toutes les stats doivent être entre 0 et 20."}), 400
-        players.append(Player(idx, name, engine, downforce, dex, aggr))
+        players.append(Player(player_id=idx, name=name, engine_power=engine, downforce=downforce, dexterity=dex, aggressiveness=aggr, color=color_for_player(idx)))
 
     game_state.players = players
     game_state.total_laps = total_laps

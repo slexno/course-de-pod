@@ -21,7 +21,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .podium-card { border-color:#fbbf24; }
 .rank-num { font-weight: 800; font-size: 1.1rem; color: #93c5fd; min-width: 40px; }
 .track-wrap { position: relative; width: 100%; max-width: 100%; background:#0b1220; border-radius:10px; }
-#track-image { width: 100%; height: auto; border-radius: 10px; border: 1px solid #374151; display: block; }
+#track-svg { width: 100%; height: min(70vh, 600px); border-radius: 10px; border: 1px solid #374151; display: block; background: #0b1220; }
+#track-path { fill: none; stroke: #cbd5e1; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
 #track-overlay { position: absolute; inset: 0; }
-.marker { position: absolute; transform: translate(-50%, -50%); width: 24px; height: 24px; border-radius: 50%; background: #22c55e; color: #111; display: flex; align-items: center; justify-content: center; font-weight: 700; border: 2px solid #fff; }
+.marker { position: absolute; transform: translate(-50%, -50%); width: 24px; height: 24px; border-radius: 50%; color: #111; display: flex; align-items: center; justify-content: center; font-weight: 700; border: 2px solid #fff; }
 .turn-banner { background:#0b1220; border:1px solid #60a5fa; color:#bfdbfe; font-weight:800; padding:.7rem .9rem; border-radius:10px; margin:.6rem 0; text-align:center; letter-spacing:.5px; }
