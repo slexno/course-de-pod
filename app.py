@@ -328,7 +328,14 @@ def apply_pending_skip_turns() -> None:
         if active is None or active.skip_turns <= 0:
             return
         active.skip_turns -= 1
-        game_state.last_duel = {"info": f"{active.name} passe son tour (bonus de dépassement adverse)."}
+
+        skip_note = f"{active.name} passe son tour (règle +10)."
+        if game_state.last_duel and game_state.last_duel.get("attack_total") is not None:
+            previous_note = game_state.last_duel.get("risk_note") or ""
+            game_state.last_duel["risk_note"] = f"{previous_note} | {skip_note}" if previous_note else skip_note
+        else:
+            game_state.last_duel = {"info": skip_note}
+
         game_state.active_position_index = (game_state.active_position_index + 1) % len(game_state.positions)
         safety += 1
 
