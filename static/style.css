@@ -1,28 +1,68 @@
 :root { color-scheme: dark; font-family: Inter, Arial, sans-serif; }
 body { margin: 0; background: #111827; color: #f9fafb; }
-main { max-width: 1120px; margin: 1rem auto; padding: 1rem; }
+main { width: min(99vw, 2160px); max-width: 2160px; margin: .7rem auto; padding: 1rem 1.1rem; }
 .panel { background: #1f2937; border: 1px solid #374151; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
 .subtitle { color: #9ca3af; }
 .hidden { display: none; }
 .error { background: #7f1d1d; border: 1px solid #ef4444; color: #fecaca; border-radius: 8px; padding: .6rem .8rem; margin-bottom: 1rem; }
 .warning { color: #fca5a5; font-weight: 700; }
 .rules { margin-top: 0; color: #d1d5db; }
-.player-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: .5rem; margin: .6rem 0; }
+.player-grid { display: grid; grid-template-columns: 2fr repeat(4, minmax(150px, 1fr)); gap: .6rem; margin: .6rem 0; align-items: center; }
+.player-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color:#cbd5e1; }
+.player-grid input[type="range"] { width:100%; padding:0; }
+.stat-val { font-weight:800; color:#93c5fd; margin-left:.2rem; }
+.stat-total { margin-top:.35rem; font-size:.8rem; color:#86efac; font-weight:700; }
+.stat-total.invalid { color:#fca5a5; }
 input, select, button { border-radius: 8px; border: 1px solid #4b5563; padding: .5rem; }
 input, select { background: #0b1220; color: #fff; }
 button { background: #2563eb; color: #fff; cursor: pointer; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 .actions, .weather-row { margin: .8rem 0; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.race-actions-horizontal { justify-content: flex-start; }
 .duel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: 1rem 0; }
-.duel { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: .8rem; min-height: 150px; }
+.duel { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: .8rem; min-height: 175px; }
+.duel-box { border: 1px solid #334155; border-radius: 10px; padding: .6rem; background: rgba(15, 23, 42, .55); }
+.duel-total { margin: .45rem 0 .55rem; padding: .35rem .5rem; border-radius: 8px; font-weight: 800; text-align: center; background: rgba(148,163,184,.15); }
+.result-success { border-color: #22c55e !important; box-shadow: 0 0 0 1px rgba(34,197,94,.55) inset, 0 0 14px rgba(34,197,94,.25); }
+.result-success .duel-total { background: rgba(34,197,94,.2); color: #dcfce7; }
+.result-fail { border-color: #ef4444 !important; box-shadow: 0 0 0 1px rgba(239,68,68,.55) inset, 0 0 14px rgba(239,68,68,.25); }
+.result-fail .duel-total { background: rgba(239,68,68,.2); color: #fee2e2; }
 .ranking, .podium { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
-.rank-card { display: flex; gap: .6rem; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: .7rem; }
-.rank-card.active { border-color:#22d3ee; box-shadow:0 0 0 1px #22d3ee inset; }
+.ranking-column { grid-template-columns: 1fr; }
+.rank-card { display: flex; gap: .6rem; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: .7rem; position: relative; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.rank-card.active { border-color:#67e8f9 !important; box-shadow:0 0 0 2px #67e8f9 inset, 0 0 20px rgba(34,211,238,.45); transform: translateX(3px) scale(1.01); }
+.rank-card.active::before { content: "▶ TOUR"; position: absolute; top: -10px; right: 10px; font-size: .68rem; font-weight: 800; color: #082f49; background: #67e8f9; padding: .14rem .45rem; border-radius: 999px; box-shadow: 0 0 0 1px rgba(255,255,255,.35) inset; }
 .podium-card { border-color:#fbbf24; }
 .rank-num { font-weight: 800; font-size: 1.1rem; color: #93c5fd; min-width: 40px; }
 .track-wrap { position: relative; width: 100%; max-width: 100%; background:#0b1220; border-radius:10px; }
 #track-svg { width: 100%; height: min(70vh, 600px); border-radius: 10px; border: 1px solid #374151; display: block; background: #0b1220; }
 #track-path { fill: none; stroke: #cbd5e1; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
-#track-overlay { position: absolute; inset: 0; }
-.marker { position: absolute; transform: translate(-50%, -50%); width: 24px; height: 24px; border-radius: 50%; color: #111; display: flex; align-items: center; justify-content: center; font-weight: 700; border: 2px solid #fff; }
-.turn-banner { background:#0b1220; border:1px solid #60a5fa; color:#bfdbfe; font-weight:800; padding:.7rem .9rem; border-radius:10px; margin:.6rem 0; text-align:center; letter-spacing:.5px; }
+.turn-banner { background:#0b1220; border:2px solid #22d3ee; color:#e0f2fe; font-weight:900; padding:.8rem 1rem; border-radius:10px; margin:.6rem 0; text-align:center; letter-spacing:.7px; box-shadow: 0 0 0 1px rgba(34,211,238,.35) inset, 0 0 22px rgba(34,211,238,.25); text-transform: uppercase; }
+#race-meta, #segment-info { background: #0b1220; border: 1px solid #334155; border-radius: 10px; padding: .55rem .75rem; margin: .45rem 0; }
+#race-meta { font-weight: 800; color: #e0f2fe; border-color: #2563eb; box-shadow: 0 0 0 1px rgba(37,99,235,.2) inset; }
+#segment-info { color: #c7d2fe; border-color: #7c3aed; box-shadow: 0 0 0 1px rgba(124,58,237,.2) inset; }
+
+.circuit-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:.6rem; margin-bottom:.7rem; }
+#setup-track-svg { width: 100%; height: min(45vh, 360px); border-radius: 10px; border: 1px solid #374151; display: block; background: #0b1220; }
+#setup-track-path { fill: none; stroke: #93c5fd; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+
+.track-marker { stroke: #fff; stroke-width: .8; }
+.track-marker-label { font-size: 3px; fill: #111827; font-weight: 800; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+
+.race-layout { display: grid; grid-template-columns: minmax(0, 1fr) 470px; gap: 1.1rem; align-items: start; }
+.race-sidebar { position: sticky; top: .8rem; }
+#ranking.ranking-column .rank-card { min-height: 84px; }
+.track-section-segment { stroke-width: 3.2; stroke-linecap: round; opacity: 0.95; }
+#track-path, #setup-track-path { stroke: #dbeafe; stroke-width: 1.1; opacity: 0.65; }
+@media (max-width: 980px) { .race-layout { grid-template-columns: 1fr; } .race-sidebar { position: static; } }
+
+@media (min-width: 1500px) { #track-svg { height: min(82vh, 940px); } }
+
+#overtake-btn { background: #2563eb; }
+#danger-btn { background: #1d4ed8; }
+#prep-btn { background: #16a34a; }
+#next-section-btn { background: #15803d; }
+#slow-behind-btn { background: #0369a1; }
+#pit-recover-btn { background: #7c3aed; }
+#pass-btn, #next-turn-btn, #restart-btn-2 { background: #334155; }
+#restart-btn-2 { background: #475569; }
