@@ -22,8 +22,6 @@ const others = document.getElementById("others");
 const startBtn = document.getElementById("start-btn");
 const restartBtn = document.getElementById("restart-btn");
 const restartBtn2 = document.getElementById("restart-btn-2");
-const weatherBtn = document.getElementById("weather-btn");
-const weatherSelect = document.getElementById("weather-select");
 
 const overtakeBtn = document.getElementById("overtake-btn");
 const dangerBtn = document.getElementById("danger-btn");
@@ -328,19 +326,18 @@ function renderState(state) {
     return;
   }
 
-  weatherSelect.value = state.weather;
-  raceMeta.innerHTML = `🏁 <strong>TOUR ${state.lap}/${state.total_laps}</strong> &nbsp;|&nbsp; 👥 ${state.player_count} joueurs &nbsp;|&nbsp; 🌦️ ${state.weather} (dex ${state.weather_dex_penalty >= 0 ? "+" : ""}${state.weather_dex_penalty})${state.finished ? " &nbsp;|&nbsp; <span class='warning'>COURSE TERMINÉE</span>" : ""}`;
+  raceMeta.innerHTML = `🏁 <strong>TOUR ${state.lap}/${state.total_laps}</strong> &nbsp;|&nbsp; 👥 ${state.player_count} joueurs${state.finished ? " &nbsp;|&nbsp; <span class='warning'>COURSE TERMINÉE</span>" : ""}`;
   segmentInfo.textContent = state.segment
     ? `🧭 SECTION EN COURS ${state.segment_index + 1}/${state.segment_count} — ${state.segment.type === "ligne_droite" ? "LIGNE DROITE" : "VIRAGE"} (${state.segment.category})`
     : `Aucun segment trouvé dans ${state.circuit_file}`;
   activeInfo.textContent = state.active_player ? `🎯 TOUR EN COURS: ${state.active_player.name.toUpperCase()}` : "";
 
   renderLastDuel(state.last_duel);
-  renderRanking(state.players || [], state.active_player ? state.active_player.player_id : null, state.segment, state.weather_dex_penalty);
+  renderRanking(state.players || [], state.active_player ? state.active_player.player_id : null, state.segment, 0);
   renderTrack(state.track || {markers: [], path: []}, trackSvg, trackPath, true);
 
   const disabled = state.finished;
-  [overtakeBtn, dangerBtn, prepBtn, nextSectionBtn, slowBehindBtn, pitRecoverBtn, passBtn, nextTurnBtn, weatherBtn].forEach((b) => {
+  [overtakeBtn, dangerBtn, prepBtn, nextSectionBtn, slowBehindBtn, pitRecoverBtn, passBtn, nextTurnBtn].forEach((b) => {
     b.disabled = disabled;
   });
 
@@ -399,14 +396,6 @@ const restart = async () => {
 restartBtn.addEventListener("click", restart);
 restartBtn2.addEventListener("click", restart);
 
-weatherBtn.addEventListener("click", async () => {
-  showError("");
-  try {
-    renderState(await api("/api/weather", "POST", { weather: weatherSelect.value }));
-  } catch (err) {
-    showError(err.message);
-  }
-});
 
 overtakeBtn.addEventListener("click", () => runAction("overtake"));
 dangerBtn.addEventListener("click", () => runAction("dangerous_overtake"));

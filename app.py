@@ -35,6 +35,7 @@ class Player:
     malus_count: int = 0
     slow_malus_sections: int = 0
     skip_turns: int = 0
+    pit_defense_malus_next: int = 0
     color: str = "#22c55e"
 
 
@@ -87,7 +88,7 @@ def dnd_modifier(stat: int) -> int:
 
 
 def weather_dex_penalty() -> int:
-    return {"dry": 0, "windy": -1, "light_rain": -2, "storm": -4}.get(game_state.weather, 0)
+    return 0
 
 
 def load_circuit_segments() -> list[dict[str, Any]]:
@@ -224,6 +225,10 @@ def defense_modifier(defender: Player, segment: dict[str, Any]) -> tuple[int, li
 
     if defender.prep_defense_bonus:
         notes.append(f"Préparation: {defender.prep_defense_bonus:+d}")
+
+    if defender.pit_defense_malus_next:
+        total += defender.pit_defense_malus_next
+        notes.append(f"Malus récupération pneus: {defender.pit_defense_malus_next:+d}")
 
     # Défense agressive aléatoire basée sur agressivité
     aggr_mod = dnd_modifier(defender.aggressiveness)
@@ -468,8 +473,6 @@ def serialize_state() -> dict[str, Any]:
         "active_player": asdict(get_active_player()) if get_active_player() else None,
         "active_has_target": bool(game_state.active_position_index > 0),
         "last_duel": game_state.last_duel,
-        "weather": game_state.weather,
-        "weather_dex_penalty": weather_dex_penalty(),
         "lap": game_state.current_lap,
         "total_laps": game_state.total_laps,
         "finished": finished,
@@ -578,12 +581,7 @@ def start_game() -> Any:
 
 @app.post("/api/weather")
 def set_weather() -> Any:
-    payload = request.get_json(silent=True) or {}
-    weather = payload.get("weather")
-    if weather not in {"dry", "windy", "light_rain", "storm"}:
-        return jsonify({"error": "Météo invalide."}), 400
-    game_state.weather = weather
-    return jsonify(serialize_state())
+    return jsonify({"error": "La météo a été retirée du jeu."}), 400
 
 
 @app.post("/api/next-turn")
@@ -648,6 +646,7 @@ def action() -> Any:
 
         atk_mod, atk_notes = slow_attack_modifier(attacker)
         def_mod, def_notes = defense_modifier(defender, segment)
+        defender_pit_malus_used = defender.pit_defense_malus_next
         atk_roll = random.randint(1, 20)
         def_roll = random.randint(1, 20)
         atk_total = atk_roll + atk_mod
@@ -670,6 +669,8 @@ def action() -> Any:
         apply_tire_delta(defender, 0.5)
 
         defender.prep_defense_bonus = 0
+        if defender_pit_malus_used:
+            defender.pit_defense_malus_next = 0
         consume_turn(attacker, segment, action_wear=1.8)
 
         game_state.last_duel = {
@@ -695,13 +696,8 @@ def action() -> Any:
     if action_type == "pit_recover":
         old_wear = attacker.tire_wear
         apply_tire_delta(attacker, -50.0)
-        if game_state.active_position_index < len(game_state.positions) - 1:
-            i = game_state.active_position_index
-            game_state.positions[i], game_state.positions[i + 1] = game_state.positions[i + 1], game_state.positions[i]
-            game_state.active_position_index += 1
-            info = f"{attacker.name} régénère ses pneus (-{min(50.0, old_wear):.1f}) et perd une place."
-        else:
-            info = f"{attacker.name} régénère ses pneus (-{min(50.0, old_wear):.1f}) mais est déjà dernier."
+        attacker.pit_defense_malus_next = -11
+        info = f"{attacker.name} régénère ses pneus (-{min(50.0, old_wear):.1f}) mais aura -11 à sa prochaine défense."
         consume_turn(attacker, segment, action_wear=1.6)
         game_state.last_duel = {"info": info}
         advance_turn()
@@ -730,6 +726,7 @@ def action() -> Any:
 
     atk_mod, atk_notes = attack_modifier(attacker, segment, dangerous)
     def_mod, def_notes = defense_modifier(defender, segment)
+    defender_pit_malus_used = defender.pit_defense_malus_next
     atk_roll = random.randint(1, 20)
     def_roll = random.randint(1, 20)
 
@@ -754,6 +751,8 @@ def action() -> Any:
     apply_tire_delta(defender, 0.5)
 
     defender.prep_defense_bonus = 0
+    if defender_pit_malus_used:
+        defender.pit_defense_malus_next = 0
     consume_turn(attacker, segment, action_wear=1.4 if dangerous else 1.0)
 
     game_state.last_duel = {

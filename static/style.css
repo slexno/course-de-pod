@@ -40,7 +40,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .turn-banner { background:#0b1220; border:2px solid #22d3ee; color:#e0f2fe; font-weight:900; padding:.8rem 1rem; border-radius:10px; margin:.6rem 0; text-align:center; letter-spacing:.7px; box-shadow: 0 0 0 1px rgba(34,211,238,.35) inset, 0 0 22px rgba(34,211,238,.25); text-transform: uppercase; }
 #race-meta, #segment-info { background: #0b1220; border: 1px solid #334155; border-radius: 10px; padding: .55rem .75rem; margin: .45rem 0; }
 #race-meta { font-weight: 800; color: #e0f2fe; border-color: #2563eb; box-shadow: 0 0 0 1px rgba(37,99,235,.2) inset; }
-#segment-info { color: #c7d2fe; border-color: #7c3aed; box-shadow: 0 0 0 1px rgba(124,58,237,.2) inset; }
+#segment-info { color: #c7d2fe; border-color: #7c3aed; box-shadow: 0 0 0 1px rgba(124,58,237,.2) inset; font-size: 1.08rem; font-weight: 900; letter-spacing: .3px; }
 
 .circuit-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:.6rem; margin-bottom:.7rem; }
 #setup-track-svg { width: 100%; height: min(45vh, 360px); border-radius: 10px; border: 1px solid #374151; display: block; background: #0b1220; }
