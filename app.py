@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import math
 import random
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request
-from openpyxl import load_workbook
+from flask import Flask, jsonify, render_template, request, send_file
 
-app = Flask(__name__)
+from circuit_generator import build_track
 
-CIRCUIT_FILE = Path("circuit.xlsx")
+BASE_DIR = Path(__file__).resolve().parent
+CIRCUIT_PNG = BASE_DIR / "circuit.png"
+
+app = Flask(__name__, template_folder=str(BASE_DIR / "templates"), static_folder=str(BASE_DIR / "static"))
 
 
 @dataclass
@@ -19,6 +22,18 @@ class Player:
     name: str
     engine_power: int
     downforce: int
+    dexterity: int
+    aggressiveness: int
+    tire_wear: float = 0.0
+    status: str = "running"
+    risk_penalty_sections: int = 0
+    next_section_bonus: int = 0
+    prep_defense_bonus: int = 0
+    corner_exit_bonus: int = 0
+    successful_overtakes: int = 0
+    successful_defenses: int = 0
+    malus_count: int = 0
+    color: str = "#22c55e"
 
 
 class GameState:
@@ -27,102 +42,335 @@ class GameState:
         self.positions: list[int] = []
         self.segment_index = 0
         self.active_position_index = 0
-        self.last_roll: dict[str, Any] | None = None
+        self.last_duel: dict[str, Any] | None = None
+        self.weather = "dry"
+        self.current_lap = 1
+        self.total_laps = 3
+        self.circuit_segments: list[dict[str, Any]] = []
+        self.circuit_points: list[tuple[float, float]] = []
+        self.circuit_counts: dict[str, int] = {
+            "virage_rapide": 3,
+            "virage_lent": 4,
+            "chicane": 2,
+            "epingle": 1,
+        }
 
     @property
     def started(self) -> bool:
-        return len(self.players) == 4
+        return len(self.players) >= 3
 
 
 game_state = GameState()
 
 
+PLAYER_COLORS = [
+    "#ef4444", "#3b82f6", "#22c55e", "#f59e0b", "#a855f7",
+    "#06b6d4", "#f97316", "#84cc16", "#e879f9", "#14b8a6",
+]
+
+
+def color_for_player(idx: int) -> str:
+    return PLAYER_COLORS[(idx - 1) % len(PLAYER_COLORS)]
+
+
+def safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def dnd_modifier(stat: int) -> int:
+    return max(-5, min(5, math.floor((stat - 10) / 2)))
+
+
+def weather_dex_penalty() -> int:
+    return {"dry": 0, "windy": -1, "light_rain": -2, "storm": -4}.get(game_state.weather, 0)
+
+
 def load_circuit_segments() -> list[dict[str, Any]]:
-    if not CIRCUIT_FILE.exists():
-        return []
-
-    wb = load_workbook(CIRCUIT_FILE, data_only=True)
-    if "Circuit" not in wb.sheetnames:
-        return []
-
-    ws = wb["Circuit"]
-    segments: list[dict[str, Any]] = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[0] is None:
-            continue
-        segments.append(
-            {
-                "index": int(row[0]),
-                "type": row[1],
-                "category": row[2],
-                "length_m": float(row[3] or 0),
-                "angle_deg": float(row[4] or 0),
-            }
-        )
-    return segments
+    return game_state.circuit_segments
 
 
-def stat_to_modifier(stat: int) -> int:
-    return max(-4, min(5, stat - 5))
+def ensure_circuit() -> None:
+    if game_state.circuit_segments:
+        return
+    game_state.circuit_segments, game_state.circuit_points = generate_circuit(game_state.circuit_counts)
 
 
-def compute_roll_modifier(player: Player, segment: dict[str, Any]) -> tuple[int, str]:
+def generate_circuit(counts: dict[str, int]) -> tuple[list[dict[str, Any]], list[tuple[float, float]]]:
+    generated_segments, generated_points = build_track(counts)
+    segments = [
+        {
+            "index": seg.index,
+            "type": seg.type_segment,
+            "category": seg.categorie,
+            "length_m": float(seg.longueur_m),
+            "start_x": float(seg.debut_x),
+            "start_y": float(seg.debut_y),
+            "end_x": float(seg.fin_x),
+            "end_y": float(seg.fin_y),
+        }
+        for seg in generated_segments
+    ]
+    return segments, generated_points
+
+
+def wear_penalty(player: Player) -> int:
+    if game_state.total_laps <= 0:
+        return 0
+    max_wear = game_state.total_laps * 30.0
+    ratio = player.tire_wear / max_wear
+    if ratio >= 1.0:
+        return -4
+    if ratio >= 0.75:
+        return -3
+    if ratio >= 0.5:
+        return -2
+    if ratio >= 0.3:
+        return -1
+    return 0
+
+
+def current_segment(segments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not segments:
+        return None
+    return segments[game_state.segment_index]
+
+
+def get_player_by_id(pid: int) -> Player | None:
+    return next((p for p in game_state.players if p.player_id == pid), None)
+
+
+def get_active_player() -> Player | None:
+    if not game_state.positions:
+        return None
+    if game_state.active_position_index >= len(game_state.positions):
+        game_state.active_position_index = 0
+    return get_player_by_id(game_state.positions[game_state.active_position_index])
+
+
+def get_target_player() -> Player | None:
+    if game_state.active_position_index <= 0:
+        return None
+    return get_player_by_id(game_state.positions[game_state.active_position_index - 1])
+
+
+def attack_modifier(attacker: Player, segment: dict[str, Any], dangerous: bool) -> tuple[int, list[str]]:
+    notes: list[str] = []
+    w_pen = weather_dex_penalty()
+
     if segment["type"] == "ligne_droite":
-        base = stat_to_modifier(player.engine_power)
-        bonus = 0
-        if segment["length_m"] >= 180:
-            bonus += 1
-        if segment["length_m"] >= 260:
-            bonus += 1
-        modifier = max(-4, min(5, base + bonus))
-        note = f"Ligne droite ({int(segment['length_m'])} m): bonus moteur +{bonus}."
-        return modifier, note
-
-    requirements = {
-        "epingle": 3,
-        "virage_lent": 5,
-        "chicane": 6,
-        "virage_rapide": 8,
-    }
-    requirement = requirements.get(segment["category"], 5)
-    base = stat_to_modifier(player.downforce)
-    gap = player.downforce - requirement
-
-    if gap >= 2:
-        context_bonus = 2
-    elif gap >= 0:
-        context_bonus = 1
-    elif gap <= -3:
-        context_bonus = -2
+        seg_mod = dnd_modifier(attacker.engine_power)
+        notes.append(f"Ligne droite: engine {seg_mod:+d}")
     else:
-        context_bonus = -1
+        seg_mod = dnd_modifier(attacker.downforce) + dnd_modifier(attacker.aggressiveness)
+        notes.append(
+            f"Virage: downforce {dnd_modifier(attacker.downforce):+d}, agressivité {dnd_modifier(attacker.aggressiveness):+d}"
+        )
 
-    modifier = max(-4, min(5, base + context_bonus))
-    note = (
-        f"{segment['category'].replace('_', ' ')}: besoin downforce {requirement}, "
-        f"écart {gap:+d}, bonus contexte {context_bonus:+d}."
-    )
-    return modifier, note
+    dex_mod = dnd_modifier(attacker.dexterity) + w_pen
+    notes.append(f"Dex + météo: {dex_mod:+d}")
+
+    total = seg_mod + dex_mod + attacker.next_section_bonus + wear_penalty(attacker)
+    if segment["type"] == "ligne_droite":
+        total += attacker.corner_exit_bonus
+        if attacker.corner_exit_bonus:
+            notes.append(f"Bonus sortie virage: {attacker.corner_exit_bonus:+d}")
+
+    if dangerous:
+        total += 2
+        notes.append("Dépassement dangereux: +2")
+
+    if attacker.next_section_bonus:
+        notes.append(f"Bonus action prochaine section: {attacker.next_section_bonus:+d}")
+
+    wp = wear_penalty(attacker)
+    if wp:
+        notes.append(f"Usure pneus: {wp:+d}")
+
+    if attacker.risk_penalty_sections > 0:
+        total -= 3
+        notes.append(f"Malus risque: -3 ({attacker.risk_penalty_sections} sections restantes)")
+
+    return total, notes
+
+
+def defense_modifier(defender: Player) -> tuple[int, list[str]]:
+    dex_mod = dnd_modifier(defender.dexterity) + weather_dex_penalty()
+    total = dex_mod + defender.prep_defense_bonus + wear_penalty(defender)
+    notes = [f"Défense dex+météo: {dex_mod:+d}"]
+
+    if defender.prep_defense_bonus:
+        notes.append(f"Préparation: {defender.prep_defense_bonus:+d}")
+
+    wp = wear_penalty(defender)
+    if wp:
+        notes.append(f"Usure pneus: {wp:+d}")
+
+    if defender.risk_penalty_sections > 0:
+        total -= 3
+        notes.append(f"Malus risque: -3 ({defender.risk_penalty_sections} sections restantes)")
+
+    return total, notes
+
+
+def dangerous_risk_penalty(attacker: Player, dangerous: bool) -> tuple[bool, str]:
+    if not dangerous:
+        return False, ""
+    threshold = attacker.aggressiveness + dnd_modifier(attacker.dexterity)
+    roll = random.randint(1, 20)
+    if roll < threshold:
+        attacker.risk_penalty_sections = max(attacker.risk_penalty_sections, 3)
+        attacker.malus_count += 1
+        return True, f"Risque pris: malus -3 pendant 3 sections ({roll} < {threshold})."
+    return False, f"Risque évité ({roll} >= {threshold})."
+
+
+def consume_turn(player: Player, segment: dict[str, Any], action_wear: float) -> None:
+    player.tire_wear += action_wear
+    if player.risk_penalty_sections > 0:
+        player.risk_penalty_sections -= 1
+
+    if segment["type"] != "ligne_droite":
+        score = dnd_modifier(player.dexterity) + dnd_modifier(player.downforce)
+        player.corner_exit_bonus = max(-2, min(3, score // 2))
+    player.next_section_bonus = 0
+
+
+def advance_turn() -> None:
+    game_state.active_position_index += 1
+    if game_state.active_position_index >= len(game_state.positions):
+        game_state.active_position_index = 0
+        segments = load_circuit_segments()
+        segment_count = max(1, len(segments))
+        game_state.segment_index = (game_state.segment_index + 1) % segment_count
+        if game_state.segment_index == 0:
+            game_state.current_lap += 1
+
+
+def track_data(segments: list[dict[str, Any]]) -> dict[str, Any]:
+    if not segments:
+        return {"markers": [], "path": []}
+
+    points = game_state.circuit_points or [(segments[0]["start_x"], segments[0]["start_y"])]
+    if not game_state.circuit_points:
+        points.extend((s["end_x"], s["end_y"]) for s in segments)
+
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    span_x = max(max_x - min_x, 1e-6)
+    span_y = max(max_y - min_y, 1e-6)
+
+    def normalize(x: float, y: float) -> tuple[float, float]:
+        x_pct = 4 + (92 * ((x - min_x) / span_x))
+        y_pct = 96 - (92 * ((y - min_y) / span_y))
+        return x_pct, y_pct
+
+    path = [{"x": normalize(x, y)[0], "y": normalize(x, y)[1]} for x, y in points]
+
+    cumulative_lengths = [0.0]
+    for i in range(1, len(points)):
+        prev_x, prev_y = points[i - 1]
+        x, y = points[i]
+        cumulative_lengths.append(cumulative_lengths[-1] + math.hypot(x - prev_x, y - prev_y))
+    total_length = cumulative_lengths[-1] or 1.0
+
+    def point_from_ratio(ratio: float) -> tuple[float, float]:
+        target = (ratio % 1.0) * total_length
+        for i in range(1, len(cumulative_lengths)):
+            if cumulative_lengths[i] >= target:
+                seg_len = max(1e-6, cumulative_lengths[i] - cumulative_lengths[i - 1])
+                t = (target - cumulative_lengths[i - 1]) / seg_len
+                x0, y0 = points[i - 1]
+                x1, y1 = points[i]
+                return (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+        return points[-1]
+
+    markers = []
+    count = max(1, len(game_state.positions))
+    for i, pid in enumerate(game_state.positions):
+        player = get_player_by_id(pid)
+        if player is None:
+            continue
+
+        gap = 0.02
+        ratio = (game_state.segment_index + 0.85 - (i * gap * len(segments))) / max(1, len(segments))
+        x, y = point_from_ratio(ratio)
+
+        mx, my = normalize(x, y)
+        markers.append({
+            "name": player.name,
+            "x": mx,
+            "y": my,
+            "color": player.color,
+            "status": "running",
+        })
+
+    return {"markers": markers, "path": path}
+
+
+def qualification_order(segments: list[dict[str, Any]]) -> list[int]:
+    scores: list[tuple[int, int]] = []
+    for p in game_state.players:
+        pace = 0
+        corner_bonus = 0
+        for seg in segments:
+            if seg["type"] == "ligne_droite":
+                pace += dnd_modifier(p.engine_power) + corner_bonus
+            else:
+                corner_bonus = max(-2, min(3, (dnd_modifier(p.dexterity) + dnd_modifier(p.downforce)) // 2))
+                pace += dnd_modifier(p.downforce) + dnd_modifier(p.dexterity)
+            pace += random.randint(1, 4)
+        scores.append((pace, p.player_id))
+    scores.sort(reverse=True)
+    return [pid for _, pid in scores]
+
+
+def final_stats() -> dict[str, Any]:
+    ranked = [get_player_by_id(pid) for pid in game_state.positions]
+    ranked = [p for p in ranked if p is not None]
+    data = [
+        {
+            "position": i + 1,
+            "name": p.name,
+            "successful_overtakes": p.successful_overtakes,
+            "successful_defenses": p.successful_defenses,
+            "malus_count": p.malus_count,
+        }
+        for i, p in enumerate(ranked)
+    ]
+    return {"podium": data[:3], "others": data[3:], "full": data}
 
 
 def serialize_state() -> dict[str, Any]:
+    ensure_circuit()
     segments = load_circuit_segments()
     by_id = {p.player_id: p for p in game_state.players}
-    ranking = [asdict(by_id[pid]) for pid in game_state.positions]
-
-    current_segment = segments[game_state.segment_index] if segments else None
-    active_player = ranking[game_state.active_position_index] if ranking else None
-    active_has_target = bool(game_state.active_position_index > 0)
+    ranking = [asdict(by_id[pid]) for pid in game_state.positions if pid in by_id]
+    finished = game_state.current_lap > game_state.total_laps
 
     return {
         "started": game_state.started,
+        "player_count": len(game_state.players),
         "players": ranking,
-        "segment": current_segment,
+        "segment": current_segment(segments),
         "segment_index": game_state.segment_index,
         "segment_count": len(segments),
-        "active_player": active_player,
-        "active_has_target": active_has_target,
-        "last_roll": game_state.last_roll,
+        "active_player": asdict(get_active_player()) if get_active_player() else None,
+        "active_has_target": bool(game_state.active_position_index > 0),
+        "last_duel": game_state.last_duel,
+        "weather": game_state.weather,
+        "weather_dex_penalty": weather_dex_penalty(),
+        "lap": game_state.current_lap,
+        "total_laps": game_state.total_laps,
+        "finished": finished,
+        "track": track_data(segments),
+        "circuit_file": "generated_in_memory",
+        "circuit_counts": game_state.circuit_counts,
+        "final_stats": final_stats() if finished and game_state.started else None,
     }
 
 
@@ -131,113 +379,217 @@ def index() -> str:
     return render_template("index.html")
 
 
+@app.get("/circuit-image")
+def circuit_image() -> Any:
+    if CIRCUIT_PNG.exists():
+        return send_file(CIRCUIT_PNG)
+    return ("circuit.png introuvable", 404)
+
+
 @app.get("/api/state")
 def get_state() -> Any:
     return jsonify(serialize_state())
 
 
+@app.post("/api/restart")
+def restart() -> Any:
+    global game_state
+    game_state = GameState()
+    return jsonify(serialize_state())
+
+
+
+
+@app.post("/api/circuit-preview")
+def circuit_preview() -> Any:
+    payload = request.get_json(silent=True) or {}
+    counts = {
+        "virage_rapide": max(0, safe_int(payload.get("virage_rapide"), game_state.circuit_counts["virage_rapide"])),
+        "virage_lent": max(0, safe_int(payload.get("virage_lent"), game_state.circuit_counts["virage_lent"])),
+        "chicane": max(0, safe_int(payload.get("chicane"), game_state.circuit_counts["chicane"])),
+        "epingle": max(0, safe_int(payload.get("epingle"), game_state.circuit_counts["epingle"])),
+    }
+    if sum(counts.values()) <= 0:
+        return jsonify({"error": "Le circuit doit contenir au moins un virage."}), 400
+
+    game_state.circuit_counts = counts
+    game_state.circuit_segments, game_state.circuit_points = generate_circuit(counts)
+    game_state.segment_index = 0
+    game_state.last_duel = {"info": "Nouveau circuit généré."}
+    return jsonify(serialize_state())
+
+
 @app.post("/api/start")
 def start_game() -> Any:
-    payload = request.get_json(force=True)
+    payload = request.get_json(silent=True) or {}
     players_payload = payload.get("players", [])
+    if not (3 <= len(players_payload) <= 10):
+        return jsonify({"error": "Il faut entre 3 et 10 joueurs."}), 400
 
-    if len(players_payload) != 4:
-        return jsonify({"error": "Il faut exactement 4 joueurs."}), 400
+    total_laps = max(1, min(20, safe_int(payload.get("total_laps"), 5)))
+    circuit_payload = payload.get("circuit", {})
+    counts = {
+        "virage_rapide": max(0, safe_int(circuit_payload.get("virage_rapide"), game_state.circuit_counts["virage_rapide"])),
+        "virage_lent": max(0, safe_int(circuit_payload.get("virage_lent"), game_state.circuit_counts["virage_lent"])),
+        "chicane": max(0, safe_int(circuit_payload.get("chicane"), game_state.circuit_counts["chicane"])),
+        "epingle": max(0, safe_int(circuit_payload.get("epingle"), game_state.circuit_counts["epingle"])),
+    }
+    if sum(counts.values()) <= 0:
+        return jsonify({"error": "Le circuit doit contenir au moins un virage."}), 400
 
     players: list[Player] = []
     for idx, row in enumerate(players_payload, start=1):
         name = (row.get("name") or "").strip()
-        engine = int(row.get("engine_power", 0))
-        downforce = int(row.get("downforce", 0))
-
+        engine = safe_int(row.get("engine_power"), -1)
+        downforce = safe_int(row.get("downforce"), -1)
+        dex = safe_int(row.get("dexterity"), -1)
+        aggr = safe_int(row.get("aggressiveness"), -1)
         if not name:
             return jsonify({"error": "Chaque joueur doit avoir un nom."}), 400
-        if not (1 <= engine <= 10 and 1 <= downforce <= 10):
-            return jsonify({"error": "Les stats doivent être entre 1 et 10."}), 400
-
-        players.append(Player(idx, name, engine, downforce))
+        if not (0 <= engine <= 20 and 0 <= downforce <= 20 and 0 <= dex <= 20 and 0 <= aggr <= 20):
+            return jsonify({"error": "Toutes les stats doivent être entre 0 et 20."}), 400
+        players.append(Player(player_id=idx, name=name, engine_power=engine, downforce=downforce, dexterity=dex, aggressiveness=aggr, color=color_for_player(idx)))
 
     game_state.players = players
-    game_state.positions = [p.player_id for p in players]
+    game_state.total_laps = total_laps
+    game_state.current_lap = 1
     game_state.segment_index = 0
     game_state.active_position_index = 0
-    game_state.last_roll = None
+    game_state.last_duel = None
+    game_state.weather = "dry"
+    game_state.circuit_counts = counts
+    game_state.circuit_segments, game_state.circuit_points = generate_circuit(counts)
+
+    segments = game_state.circuit_segments
+    game_state.positions = qualification_order(segments) if segments else [p.player_id for p in players]
 
     return jsonify(serialize_state())
 
 
-@app.post("/api/roll")
-def roll_overtake() -> Any:
-    state = serialize_state()
-    if not state["started"]:
-        return jsonify({"error": "La course n'est pas démarrée."}), 400
-    if not state["active_has_target"]:
-        return jsonify({"error": "Le leader n'a personne à dépasser."}), 400
-
-    active = game_state.positions[game_state.active_position_index]
-    player = next(p for p in game_state.players if p.player_id == active)
-    segment = state["segment"]
-    if segment is None:
-        return jsonify({"error": "Aucun segment disponible dans circuit.xlsx."}), 400
-
-    modifier, note = compute_roll_modifier(player, segment)
-    roll = random.randint(1, 20)
-    total = roll + modifier
-
-    target_id = game_state.positions[game_state.active_position_index - 1]
-    target = next(p for p in game_state.players if p.player_id == target_id)
-
-    game_state.last_roll = {
-        "player": player.name,
-        "target": target.name,
-        "d20": roll,
-        "modifier": modifier,
-        "total": total,
-        "note": note,
-    }
-
+@app.post("/api/weather")
+def set_weather() -> Any:
+    payload = request.get_json(silent=True) or {}
+    weather = payload.get("weather")
+    if weather not in {"dry", "windy", "light_rain", "storm"}:
+        return jsonify({"error": "Météo invalide."}), 400
+    game_state.weather = weather
     return jsonify(serialize_state())
 
 
-@app.post("/api/resolve")
-def resolve_roll() -> Any:
-    payload = request.get_json(force=True)
-    success = bool(payload.get("success"))
-
-    if game_state.last_roll is None:
-        return jsonify({"error": "Lancez un dé avant de résoudre."}), 400
-
-    if success and game_state.active_position_index > 0:
-        i = game_state.active_position_index
-        game_state.positions[i - 1], game_state.positions[i] = (
-            game_state.positions[i],
-            game_state.positions[i - 1],
-        )
-        game_state.active_position_index -= 1
-
-    game_state.last_roll = None
-    return jsonify(serialize_state())
-
-
-@app.post("/api/next")
+@app.post("/api/next-turn")
 def next_turn() -> Any:
     state = serialize_state()
     if not state["started"]:
         return jsonify({"error": "La course n'est pas démarrée."}), 400
+    if state["finished"]:
+        return jsonify({"error": "Course terminée."}), 400
+    active = get_active_player()
+    if active is not None:
+        game_state.last_duel = {"info": f"{active.name} passe son tour."}
+    advance_turn()
+    return jsonify(serialize_state())
 
-    game_state.last_roll = None
-    game_state.active_position_index += 1
 
-    if game_state.active_position_index >= len(game_state.positions):
-        game_state.active_position_index = 0
-        segment_count = max(1, state["segment_count"])
-        game_state.segment_index = (game_state.segment_index + 1) % segment_count
+@app.post("/api/action")
+def action() -> Any:
+    state = serialize_state()
+    if not state["started"]:
+        return jsonify({"error": "La course n'est pas démarrée."}), 400
+    if state["finished"]:
+        return jsonify({"error": "Course terminée."}), 400
 
+    payload = request.get_json(silent=True) or {}
+    action_type = payload.get("type")
+
+    segments = load_circuit_segments()
+    segment = current_segment(segments)
+    if segment is None:
+        return jsonify({"error": "Segment introuvable."}), 400
+
+    attacker = get_active_player()
+    if attacker is None:
+        advance_turn()
+        return jsonify(serialize_state())
+
+    if action_type == "prepare":
+        attacker.prep_defense_bonus = 2
+        consume_turn(attacker, segment, action_wear=0.8)
+        game_state.last_duel = {"info": f"{attacker.name} se prépare (+2 défense)."}
+        advance_turn()
+        return jsonify(serialize_state())
+
+    if action_type == "next_section_bonus":
+        attacker.next_section_bonus += 1
+        consume_turn(attacker, segment, action_wear=0.8)
+        game_state.last_duel = {"info": f"{attacker.name} prépare la prochaine section (+1 attaque)."}
+        advance_turn()
+        return jsonify(serialize_state())
+
+    if action_type == "pass":
+        consume_turn(attacker, segment, action_wear=0.6)
+        game_state.last_duel = {"info": f"{attacker.name} passe cette section."}
+        advance_turn()
+        return jsonify(serialize_state())
+
+    if action_type not in {"overtake", "dangerous_overtake"}:
+        return jsonify({"error": "Action inconnue."}), 400
+
+    if game_state.active_position_index == 0:
+        consume_turn(attacker, segment, action_wear=0.6)
+        game_state.last_duel = {"info": f"{attacker.name} est leader: pas de cible, tour passé."}
+        advance_turn()
+        return jsonify(serialize_state())
+
+    defender = get_target_player()
+    if defender is None:
+        return jsonify({"error": "Défenseur indisponible."}), 400
+
+    dangerous = action_type == "dangerous_overtake"
+
+    atk_mod, atk_notes = attack_modifier(attacker, segment, dangerous)
+    def_mod, def_notes = defense_modifier(defender)
+    atk_roll = random.randint(1, 20)
+    def_roll = random.randint(1, 20)
+
+    risk_triggered, risk_note = dangerous_risk_penalty(attacker, dangerous)
+
+    atk_total = atk_roll + atk_mod
+    def_total = def_roll + def_mod
+    success = atk_total > def_total
+
+    if success:
+        attacker.successful_overtakes += 1
+        i = game_state.active_position_index
+        game_state.positions[i - 1], game_state.positions[i] = game_state.positions[i], game_state.positions[i - 1]
+        game_state.active_position_index -= 1
+    else:
+        defender.successful_defenses += 1
+
+    defender.prep_defense_bonus = 0
+    consume_turn(attacker, segment, action_wear=2.2 if dangerous else 1.6)
+
+    game_state.last_duel = {
+        "attacker": attacker.name,
+        "defender": defender.name,
+        "attack_roll": atk_roll,
+        "attack_mod": atk_mod,
+        "attack_total": atk_total,
+        "attack_notes": atk_notes,
+        "defense_roll": def_roll,
+        "defense_mod": def_mod,
+        "defense_total": def_total,
+        "defense_notes": def_notes,
+        "dangerous": dangerous,
+        "risk_triggered": risk_triggered,
+        "risk_note": risk_note,
+        "success": success,
+    }
+
+    advance_turn()
     return jsonify(serialize_state())
 
 
 def run_local_server() -> None:
-    """Lance le serveur local sans reloader pour compatibilité IDE (Spyder/Jupyter)."""
     app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
 
 

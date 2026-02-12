@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>F1 Tabletop Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <main>
+      <h1>F1 Tabletop Manager</h1>
+      <p class="subtitle">Système D20 attaque/défense inspiré de Donjons & Dragons.</p>
+      <div id="error-box" class="error hidden"></div>
+
+      <section class="panel" id="setup-panel">
+        <h2>Création de voiture + circuit</h2>
+        <ul class="rules">
+          <li><strong>Engine power:</strong> bonus sur les lignes droites uniquement.</li>
+          <li><strong>Downforce:</strong> bonus dans les virages uniquement.</li>
+          <li><strong>Dextérité:</strong> impacte conduite globale + défense.</li>
+          <li><strong>Agressivité:</strong> bonus en virage, risque de malus en dépassement dangereux.</li>
+          <li><strong>Échelle des stats:</strong> 0 à 20 (modificateur D&D de -5 à +5).</li>
+        </ul>
+        <div class="actions">
+          <label>Joueurs (3-10): <input id="player-count-input" type="number" min="3" max="10" value="4" /></label>
+          <label>Tours de course: <input id="laps-input" type="number" min="1" max="20" value="5" /></label>
+        </div>
+
+        <h3>Générateur de circuit</h3>
+        <div class="circuit-grid">
+          <label>Virages rapides: <input id="turn-fast-input" type="number" min="0" value="3" /></label>
+          <label>Virages lents: <input id="turn-slow-input" type="number" min="0" value="4" /></label>
+          <label>Chicanes: <input id="chicane-input" type="number" min="0" value="2" /></label>
+          <label>Épingles: <input id="hairpin-input" type="number" min="0" value="1" /></label>
+        </div>
+        <div class="actions">
+          <button type="button" id="generate-track-btn">Générer un circuit</button>
+        </div>
+        <div class="track-wrap">
+          <svg id="setup-track-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+            <polyline id="setup-track-path" points="" />
+          </svg>
+        </div>
+        <form id="setup-form"></form>
+        <div class="actions">
+          <button type="button" id="start-btn">Lancer qualifications + course</button>
+          <button type="button" id="restart-btn">Recommencer</button>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="race-panel">
+        <h2>Course</h2>
+        <div id="race-meta"></div>
+        <div id="segment-info"></div>
+        <div id="active-info" class="turn-banner"></div>
+
+        <div class="weather-row">
+          <label>Météo:</label>
+          <select id="weather-select">
+            <option value="dry">Sec (-0 dex)</option>
+            <option value="windy">Venteux (-1 dex)</option>
+            <option value="light_rain">Pluie légère (-2 dex)</option>
+            <option value="storm">Orage (-4 dex)</option>
+          </select>
+          <button type="button" id="weather-btn">Appliquer</button>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="overtake-btn">Dépassement</button>
+          <button type="button" id="danger-btn">Dépassement dangereux</button>
+          <button type="button" id="prep-btn">Préparation (+défense)</button>
+          <button type="button" id="next-section-btn">Prochaine section (+attaque)</button>
+          <button type="button" id="pass-btn">Passer</button>
+          <button type="button" id="next-turn-btn">Prochain tour</button>
+          <button type="button" id="restart-btn-2">Recommencer</button>
+        </div>
+
+        <div class="duel-grid">
+          <div class="duel"><h3>Attaque</h3><div id="attack-box">-</div></div>
+          <div class="duel"><h3>Défence</h3><div id="defense-box">-</div></div>
+        </div>
+
+        <h3>Classement</h3>
+        <div id="ranking" class="ranking"></div>
+
+        <h3>Carte du circuit</h3>
+        <div class="track-wrap">
+          <svg id="track-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+            <polyline id="track-path" points="" />
+          </svg>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="end-panel">
+        <h2>Fin de course - Statistiques</h2>
+        <h3>Podium</h3>
+        <div id="podium" class="podium"></div>
+        <h3>Reste du classement</h3>
+        <div id="others" class="ranking"></div>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
