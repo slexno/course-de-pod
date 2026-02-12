@@ -20,6 +20,7 @@ const podium = document.getElementById("podium");
 const others = document.getElementById("others");
 
 const startBtn = document.getElementById("start-btn");
+const simulateBtn = document.getElementById("simulate-btn");
 const restartBtn = document.getElementById("restart-btn");
 const restartBtn2 = document.getElementById("restart-btn-2");
 
@@ -345,17 +346,9 @@ function renderState(state) {
   if (state.finished) renderEndStats(state.final_stats);
 }
 
-async function runAction(type) {
-  showError("");
-  try {
-    renderState(await api("/api/action", "POST", { type }));
-  } catch (err) {
-    showError(err.message);
-  }
-}
 
-startBtn.addEventListener("click", async () => {
-  showError("");
+
+async function collectSetupPayload() {
   const count = Math.max(3, Math.min(10, Number(playerCountInput.value || 4)));
   const players = [];
   for (let i = 1; i <= count; i++) {
@@ -368,17 +361,69 @@ startBtn.addEventListener("click", async () => {
     });
   }
 
+  return {
+    players,
+    total_laps: Number(lapsInput.value),
+    circuit: {
+      virage_rapide: Number(turnFastInput.value),
+      virage_lent: Number(turnSlowInput.value),
+      virage_moyen: Number(mediumTurnInput.value),
+      epingle: Number(hairpinInput.value),
+    },
+  };
+}
+
+async function runAction(type) {
+  showError("");
   try {
-    renderState(await api("/api/start", "POST", {
-      players,
-      total_laps: Number(lapsInput.value),
-      circuit: {
+    renderState(await api("/api/action", "POST", { type }));
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
+startBtn.addEventListener("click", async () => {
+  showError("");
+  try {
+    renderState(await api("/api/start", "POST", await collectSetupPayload()));
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+simulateBtn.addEventListener("click", async () => {
+  showError("");
+  try {
+    const simulation = await api("/api/simulate", "POST", await collectSetupPayload());
+    renderState({
+      started: true,
+      finished: true,
+      lap: simulation.total_laps + 1,
+      total_laps: simulation.total_laps,
+      player_count: simulation.player_count,
+      players: simulation.final_stats.full.map((entry) => ({
+        player_id: entry.position,
+        name: entry.name,
+        engine_power: 0,
+        downforce: 0,
+        dexterity: 0,
+        aggressiveness: 0,
+        tire_wear: 0,
+      })),
+      segment: null,
+      segment_index: 0,
+      segment_count: 0,
+      active_player: null,
+      last_duel: { info: "Simulation terminée automatiquement." },
+      track: { markers: [], path: [] },
+      final_stats: simulation.final_stats,
+      circuit_counts: {
         virage_rapide: Number(turnFastInput.value),
         virage_lent: Number(turnSlowInput.value),
         virage_moyen: Number(mediumTurnInput.value),
         epingle: Number(hairpinInput.value),
       },
-    }));
+    });
   } catch (err) {
     showError(err.message);
   }

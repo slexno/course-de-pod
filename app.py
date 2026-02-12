@@ -463,6 +463,243 @@ def final_stats() -> dict[str, Any]:
     return {"podium": data[:3], "others": data[3:], "full": data}
 
 
+def random_action_for_player(player: Player) -> str:
+    weighted_actions = [
+        ("overtake", 30),
+        ("dangerous_overtake", 12),
+        ("prepare", 10),
+        ("next_section_bonus", 10),
+        ("slow_behind", 12),
+        ("pit_recover", 6 if player.tire_wear >= 35 else 1),
+        ("pass", 20),
+    ]
+    actions = [name for name, _ in weighted_actions]
+    weights = [weight for _, weight in weighted_actions]
+    return random.choices(actions, weights=weights, k=1)[0]
+
+
+def setup_game_from_payload(payload: dict[str, Any]) -> tuple[bool, str | None]:
+    players_payload = payload.get("players", [])
+    if not (3 <= len(players_payload) <= 10):
+        return False, "Il faut entre 3 et 10 joueurs."
+
+    total_laps = max(1, min(20, safe_int(payload.get("total_laps"), 5)))
+    circuit_payload = payload.get("circuit", {})
+    counts = {
+        "virage_rapide": max(0, safe_int(circuit_payload.get("virage_rapide"), game_state.circuit_counts["virage_rapide"])),
+        "virage_lent": max(0, safe_int(circuit_payload.get("virage_lent"), game_state.circuit_counts["virage_lent"])),
+        "virage_moyen": max(0, safe_int(circuit_payload.get("virage_moyen"), game_state.circuit_counts["virage_moyen"])),
+        "epingle": max(0, safe_int(circuit_payload.get("epingle"), game_state.circuit_counts["epingle"])),
+    }
+    if sum(counts.values()) <= 0:
+        return False, "Le circuit doit contenir au moins un virage."
+
+    players: list[Player] = []
+    for idx, row in enumerate(players_payload, start=1):
+        name = (row.get("name") or "").strip()
+        engine = safe_int(row.get("engine_power"), -1)
+        downforce = safe_int(row.get("downforce"), -1)
+        dex = safe_int(row.get("dexterity"), -1)
+        aggr = safe_int(row.get("aggressiveness"), -1)
+        if not name:
+            return False, "Chaque joueur doit avoir un nom."
+        if not (0 <= engine <= 20 and 0 <= downforce <= 20 and 0 <= dex <= 20 and 0 <= aggr <= 20):
+            return False, "Toutes les stats doivent être entre 0 et 20."
+        if engine + downforce + dex + aggr != 50:
+            return False, "La somme des 4 stats doit être exactement 50 pour chaque joueur."
+        players.append(Player(player_id=idx, name=name, engine_power=engine, downforce=downforce, dexterity=dex, aggressiveness=aggr, color=color_for_player(idx)))
+
+    game_state.players = players
+    game_state.total_laps = total_laps
+    game_state.current_lap = 1
+    game_state.segment_index = 0
+    game_state.active_position_index = 0
+    game_state.last_duel = None
+    game_state.weather = "dry"
+    reuse_preview = game_state.circuit_segments and counts == game_state.circuit_counts
+    game_state.circuit_counts = counts
+    if not reuse_preview:
+        game_state.circuit_segments, game_state.circuit_points = generate_circuit(counts)
+
+    segments = game_state.circuit_segments
+    game_state.positions = qualification_order(segments) if segments else [p.player_id for p in players]
+    return True, None
+
+
+def perform_action(action_type: str) -> tuple[bool, str | None]:
+    state = serialize_state()
+    if not state["started"]:
+        return False, "La course n'est pas démarrée."
+    if state["finished"]:
+        return False, "Course terminée."
+
+    segments = load_circuit_segments()
+    segment = current_segment(segments)
+    if segment is None:
+        return False, "Segment introuvable."
+
+    attacker = get_active_player()
+    if attacker is None:
+        advance_turn()
+        return True, None
+
+    if action_type == "prepare":
+        attacker.prep_defense_bonus = 2
+        consume_turn(attacker, segment, action_wear=1.6)
+        game_state.last_duel = {"info": f"{attacker.name} se prépare (+2 défense)."}
+        advance_turn()
+        return True, None
+
+    if action_type == "next_section_bonus":
+        attacker.next_section_bonus += 1
+        consume_turn(attacker, segment, action_wear=1.6)
+        game_state.last_duel = {"info": f"{attacker.name} prépare la prochaine section (+1 attaque)."}
+        advance_turn()
+        return True, None
+
+    if action_type == "slow_behind":
+        if game_state.active_position_index >= len(game_state.positions) - 1:
+            consume_turn(attacker, segment, action_wear=1.6)
+            game_state.last_duel = {"info": f"{attacker.name} est dernier: personne à ralentir."}
+            advance_turn()
+            return True, None
+
+        defender = get_player_behind()
+        if defender is None:
+            return False, "Défenseur indisponible."
+
+        atk_mod, atk_notes = slow_attack_modifier(attacker)
+        def_mod, def_notes = defense_modifier(defender, segment)
+        defender_pit_malus_used = defender.pit_defense_malus_next
+        atk_roll = random.randint(1, 20)
+        def_roll = random.randint(1, 20)
+        atk_total = atk_roll + atk_mod
+        def_total = def_roll + def_mod
+        success = atk_total > def_total
+
+        overtake_back = (def_total - atk_total) > 10
+        if success:
+            defender.slow_malus_sections = max(defender.slow_malus_sections, 2)
+            attacker.successful_overtakes += 1
+            apply_tire_delta(attacker, -0.5)
+        else:
+            defender.successful_defenses += 1
+            apply_tire_delta(attacker, 1.0)
+            if overtake_back:
+                i = game_state.active_position_index
+                game_state.positions[i], game_state.positions[i + 1] = game_state.positions[i + 1], game_state.positions[i]
+                game_state.active_position_index += 1
+
+        apply_tire_delta(defender, 0.5)
+
+        defender.prep_defense_bonus = 0
+        if defender_pit_malus_used:
+            defender.pit_defense_malus_next = 0
+        consume_turn(attacker, segment, action_wear=1.8)
+
+        game_state.last_duel = {
+            "attacker": attacker.name,
+            "defender": defender.name,
+            "attack_roll": atk_roll,
+            "attack_mod": atk_mod,
+            "attack_total": atk_total,
+            "attack_notes": atk_notes,
+            "defense_roll": def_roll,
+            "defense_mod": def_mod,
+            "defense_total": def_total,
+            "defense_notes": def_notes,
+            "dangerous": False,
+            "risk_triggered": False,
+            "risk_note": "Contre réussi: dépassement défensif (>10)." if overtake_back else "",
+            "success": success,
+        }
+
+        advance_turn()
+        return True, None
+
+    if action_type == "pit_recover":
+        old_wear = attacker.tire_wear
+        apply_tire_delta(attacker, -50.0)
+        attacker.pit_defense_malus_next = -11
+        info = f"{attacker.name} régénère ses pneus (-{min(50.0, old_wear):.1f}) mais aura -11 à sa prochaine défense."
+        consume_turn(attacker, segment, action_wear=1.6)
+        game_state.last_duel = {"info": info}
+        advance_turn()
+        return True, None
+
+    if action_type == "pass":
+        consume_turn(attacker, segment, action_wear=1.4)
+        game_state.last_duel = {"info": f"{attacker.name} passe cette section."}
+        advance_turn()
+        return True, None
+
+    if action_type not in {"overtake", "dangerous_overtake"}:
+        return False, "Action inconnue."
+
+    if game_state.active_position_index == 0:
+        consume_turn(attacker, segment, action_wear=1.2)
+        game_state.last_duel = {"info": f"{attacker.name} est leader: pas de cible, tour passé."}
+        advance_turn()
+        return True, None
+
+    defender = get_target_player()
+    if defender is None:
+        return False, "Défenseur indisponible."
+
+    dangerous = action_type == "dangerous_overtake"
+
+    atk_mod, atk_notes = attack_modifier(attacker, segment, dangerous)
+    def_mod, def_notes = defense_modifier(defender, segment)
+    defender_pit_malus_used = defender.pit_defense_malus_next
+    atk_roll = random.randint(1, 20)
+    def_roll = random.randint(1, 20)
+
+    risk_triggered, risk_note = dangerous_risk_penalty(attacker, dangerous)
+
+    atk_total = atk_roll + atk_mod
+    def_total = def_roll + def_mod
+    success = atk_total > def_total
+
+    if success:
+        attacker.successful_overtakes += 1
+        i = game_state.active_position_index
+        game_state.positions[i - 1], game_state.positions[i] = game_state.positions[i], game_state.positions[i - 1]
+        game_state.active_position_index -= 1
+        if (atk_total - def_total) >= 10:
+            defender.skip_turns += 1
+        apply_tire_delta(attacker, -0.5)
+    else:
+        defender.successful_defenses += 1
+        apply_tire_delta(attacker, 1.0)
+
+    apply_tire_delta(defender, 0.5)
+
+    defender.prep_defense_bonus = 0
+    if defender_pit_malus_used:
+        defender.pit_defense_malus_next = 0
+    consume_turn(attacker, segment, action_wear=1.4 if dangerous else 1.0)
+
+    game_state.last_duel = {
+        "attacker": attacker.name,
+        "defender": defender.name,
+        "attack_roll": atk_roll,
+        "attack_mod": atk_mod,
+        "attack_total": atk_total,
+        "attack_notes": atk_notes,
+        "defense_roll": def_roll,
+        "defense_mod": def_mod,
+        "defense_total": def_total,
+        "defense_notes": def_notes,
+        "dangerous": dangerous,
+        "risk_triggered": risk_triggered,
+        "risk_note": risk_note,
+        "success": success,
+    }
+
+    advance_turn()
+    return True, None
+
+
 def serialize_state() -> dict[str, Any]:
     ensure_circuit()
     segments = load_circuit_segments()
@@ -538,51 +775,9 @@ def circuit_preview() -> Any:
 @app.post("/api/start")
 def start_game() -> Any:
     payload = request.get_json(silent=True) or {}
-    players_payload = payload.get("players", [])
-    if not (3 <= len(players_payload) <= 10):
-        return jsonify({"error": "Il faut entre 3 et 10 joueurs."}), 400
-
-    total_laps = max(1, min(20, safe_int(payload.get("total_laps"), 5)))
-    circuit_payload = payload.get("circuit", {})
-    counts = {
-        "virage_rapide": max(0, safe_int(circuit_payload.get("virage_rapide"), game_state.circuit_counts["virage_rapide"])),
-        "virage_lent": max(0, safe_int(circuit_payload.get("virage_lent"), game_state.circuit_counts["virage_lent"])),
-        "virage_moyen": max(0, safe_int(circuit_payload.get("virage_moyen"), game_state.circuit_counts["virage_moyen"])),
-        "epingle": max(0, safe_int(circuit_payload.get("epingle"), game_state.circuit_counts["epingle"])),
-    }
-    if sum(counts.values()) <= 0:
-        return jsonify({"error": "Le circuit doit contenir au moins un virage."}), 400
-
-    players: list[Player] = []
-    for idx, row in enumerate(players_payload, start=1):
-        name = (row.get("name") or "").strip()
-        engine = safe_int(row.get("engine_power"), -1)
-        downforce = safe_int(row.get("downforce"), -1)
-        dex = safe_int(row.get("dexterity"), -1)
-        aggr = safe_int(row.get("aggressiveness"), -1)
-        if not name:
-            return jsonify({"error": "Chaque joueur doit avoir un nom."}), 400
-        if not (0 <= engine <= 20 and 0 <= downforce <= 20 and 0 <= dex <= 20 and 0 <= aggr <= 20):
-            return jsonify({"error": "Toutes les stats doivent être entre 0 et 20."}), 400
-        if engine + downforce + dex + aggr != 50:
-            return jsonify({"error": "La somme des 4 stats doit être exactement 50 pour chaque joueur."}), 400
-        players.append(Player(player_id=idx, name=name, engine_power=engine, downforce=downforce, dexterity=dex, aggressiveness=aggr, color=color_for_player(idx)))
-
-    game_state.players = players
-    game_state.total_laps = total_laps
-    game_state.current_lap = 1
-    game_state.segment_index = 0
-    game_state.active_position_index = 0
-    game_state.last_duel = None
-    game_state.weather = "dry"
-    reuse_preview = game_state.circuit_segments and counts == game_state.circuit_counts
-    game_state.circuit_counts = counts
-    if not reuse_preview:
-        game_state.circuit_segments, game_state.circuit_points = generate_circuit(counts)
-
-    segments = game_state.circuit_segments
-    game_state.positions = qualification_order(segments) if segments else [p.player_id for p in players]
-
+    ok, error = setup_game_from_payload(payload)
+    if not ok:
+        return jsonify({"error": error}), 400
     return jsonify(serialize_state())
 
 
@@ -607,180 +802,42 @@ def next_turn() -> Any:
 
 @app.post("/api/action")
 def action() -> Any:
-    state = serialize_state()
-    if not state["started"]:
-        return jsonify({"error": "La course n'est pas démarrée."}), 400
-    if state["finished"]:
-        return jsonify({"error": "Course terminée."}), 400
-
     payload = request.get_json(silent=True) or {}
     action_type = payload.get("type")
-
-    segments = load_circuit_segments()
-    segment = current_segment(segments)
-    if segment is None:
-        return jsonify({"error": "Segment introuvable."}), 400
-
-    attacker = get_active_player()
-    if attacker is None:
-        advance_turn()
-        return jsonify(serialize_state())
-
-    if action_type == "prepare":
-        attacker.prep_defense_bonus = 2
-        consume_turn(attacker, segment, action_wear=1.6)
-        game_state.last_duel = {"info": f"{attacker.name} se prépare (+2 défense)."}
-        advance_turn()
-        return jsonify(serialize_state())
-
-    if action_type == "next_section_bonus":
-        attacker.next_section_bonus += 1
-        consume_turn(attacker, segment, action_wear=1.6)
-        game_state.last_duel = {"info": f"{attacker.name} prépare la prochaine section (+1 attaque)."}
-        advance_turn()
-        return jsonify(serialize_state())
-
-    if action_type == "slow_behind":
-        if game_state.active_position_index >= len(game_state.positions) - 1:
-            consume_turn(attacker, segment, action_wear=1.6)
-            game_state.last_duel = {"info": f"{attacker.name} est dernier: personne à ralentir."}
-            advance_turn()
-            return jsonify(serialize_state())
-
-        defender = get_player_behind()
-        if defender is None:
-            return jsonify({"error": "Défenseur indisponible."}), 400
-
-        atk_mod, atk_notes = slow_attack_modifier(attacker)
-        def_mod, def_notes = defense_modifier(defender, segment)
-        defender_pit_malus_used = defender.pit_defense_malus_next
-        atk_roll = random.randint(1, 20)
-        def_roll = random.randint(1, 20)
-        atk_total = atk_roll + atk_mod
-        def_total = def_roll + def_mod
-        success = atk_total > def_total
-
-        overtake_back = (def_total - atk_total) > 10
-        if success:
-            defender.slow_malus_sections = max(defender.slow_malus_sections, 2)
-            attacker.successful_overtakes += 1
-            apply_tire_delta(attacker, -0.5)
-        else:
-            defender.successful_defenses += 1
-            apply_tire_delta(attacker, 1.0)
-            if overtake_back:
-                i = game_state.active_position_index
-                game_state.positions[i], game_state.positions[i + 1] = game_state.positions[i + 1], game_state.positions[i]
-                game_state.active_position_index += 1
-
-        apply_tire_delta(defender, 0.5)
-
-        defender.prep_defense_bonus = 0
-        if defender_pit_malus_used:
-            defender.pit_defense_malus_next = 0
-        consume_turn(attacker, segment, action_wear=1.8)
-
-        game_state.last_duel = {
-            "attacker": attacker.name,
-            "defender": defender.name,
-            "attack_roll": atk_roll,
-            "attack_mod": atk_mod,
-            "attack_total": atk_total,
-            "attack_notes": atk_notes,
-            "defense_roll": def_roll,
-            "defense_mod": def_mod,
-            "defense_total": def_total,
-            "defense_notes": def_notes,
-            "dangerous": False,
-            "risk_triggered": False,
-            "risk_note": "Contre réussi: dépassement défensif (>10)." if overtake_back else "",
-            "success": success,
-        }
-
-        advance_turn()
-        return jsonify(serialize_state())
-
-    if action_type == "pit_recover":
-        old_wear = attacker.tire_wear
-        apply_tire_delta(attacker, -50.0)
-        attacker.pit_defense_malus_next = -11
-        info = f"{attacker.name} régénère ses pneus (-{min(50.0, old_wear):.1f}) mais aura -11 à sa prochaine défense."
-        consume_turn(attacker, segment, action_wear=1.6)
-        game_state.last_duel = {"info": info}
-        advance_turn()
-        return jsonify(serialize_state())
-
-    if action_type == "pass":
-        consume_turn(attacker, segment, action_wear=1.4)
-        game_state.last_duel = {"info": f"{attacker.name} passe cette section."}
-        advance_turn()
-        return jsonify(serialize_state())
-
-    if action_type not in {"overtake", "dangerous_overtake"}:
-        return jsonify({"error": "Action inconnue."}), 400
-
-    if game_state.active_position_index == 0:
-        consume_turn(attacker, segment, action_wear=1.2)
-        game_state.last_duel = {"info": f"{attacker.name} est leader: pas de cible, tour passé."}
-        advance_turn()
-        return jsonify(serialize_state())
-
-    defender = get_target_player()
-    if defender is None:
-        return jsonify({"error": "Défenseur indisponible."}), 400
-
-    dangerous = action_type == "dangerous_overtake"
-
-    atk_mod, atk_notes = attack_modifier(attacker, segment, dangerous)
-    def_mod, def_notes = defense_modifier(defender, segment)
-    defender_pit_malus_used = defender.pit_defense_malus_next
-    atk_roll = random.randint(1, 20)
-    def_roll = random.randint(1, 20)
-
-    risk_triggered, risk_note = dangerous_risk_penalty(attacker, dangerous)
-
-    atk_total = atk_roll + atk_mod
-    def_total = def_roll + def_mod
-    success = atk_total > def_total
-
-    if success:
-        attacker.successful_overtakes += 1
-        i = game_state.active_position_index
-        game_state.positions[i - 1], game_state.positions[i] = game_state.positions[i], game_state.positions[i - 1]
-        game_state.active_position_index -= 1
-        if (atk_total - def_total) >= 10:
-            defender.skip_turns += 1
-        apply_tire_delta(attacker, -0.5)
-    else:
-        defender.successful_defenses += 1
-        apply_tire_delta(attacker, 1.0)
-
-    apply_tire_delta(defender, 0.5)
-
-    defender.prep_defense_bonus = 0
-    if defender_pit_malus_used:
-        defender.pit_defense_malus_next = 0
-    consume_turn(attacker, segment, action_wear=1.4 if dangerous else 1.0)
-
-    game_state.last_duel = {
-        "attacker": attacker.name,
-        "defender": defender.name,
-        "attack_roll": atk_roll,
-        "attack_mod": atk_mod,
-        "attack_total": atk_total,
-        "attack_notes": atk_notes,
-        "defense_roll": def_roll,
-        "defense_mod": def_mod,
-        "defense_total": def_total,
-        "defense_notes": def_notes,
-        "dangerous": dangerous,
-        "risk_triggered": risk_triggered,
-        "risk_note": risk_note,
-        "success": success,
-    }
-
-    advance_turn()
+    ok, error = perform_action(action_type)
+    if not ok:
+        return jsonify({"error": error}), 400
     return jsonify(serialize_state())
+
+
+@app.post("/api/simulate")
+def simulate_race() -> Any:
+    payload = request.get_json(silent=True) or {}
+    ok, error = setup_game_from_payload(payload)
+    if not ok:
+        return jsonify({"error": error}), 400
+
+    max_steps = max(200, len(game_state.players) * max(1, len(game_state.circuit_segments)) * game_state.total_laps * 4)
+    steps = 0
+    while game_state.current_lap <= game_state.total_laps and steps < max_steps:
+        active = get_active_player()
+        if active is None:
+            advance_turn()
+            steps += 1
+            continue
+        perform_action(random_action_for_player(active))
+        steps += 1
+
+    if game_state.current_lap <= game_state.total_laps:
+        return jsonify({"error": "La simulation a dépassé la limite de sécurité."}), 500
+
+    return jsonify({
+        "started": game_state.started,
+        "finished": True,
+        "player_count": len(game_state.players),
+        "total_laps": game_state.total_laps,
+        "final_stats": final_stats(),
+    })
 
 
 def run_local_server() -> None:
