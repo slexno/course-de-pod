@@ -23,6 +23,21 @@ python app.py
 
 Puis ouvrir http://127.0.0.1:5000
 
+## Générer un exécutable Windows (.exe)
+
+Depuis Windows (PowerShell ou CMD) :
+
+```bat
+build_exe.bat
+```
+
+Le binaire est généré ici :
+
+- `dist\course-de-pod.exe`
+
+> Note: la génération d'un vrai `.exe` doit se faire sur un environnement Windows.
+
+
 ## Règles principales
 
 - Stats de 0 à 20 avec modificateur D&D (`0 => -5`, `20 => +5`).
